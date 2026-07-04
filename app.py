@@ -4,11 +4,14 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import (
     Flask, render_template, request, redirect, url_for,
     flash, send_file, abort, session
 )
 from werkzeug.utils import secure_filename
+
+load_dotenv()
 
 import database
 import gemini_extract
