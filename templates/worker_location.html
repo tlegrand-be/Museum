@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.worker.name }} at {{ detail.location.name }} — Roster Ledger{% endblock %}
+{% block content %}
+
+<a class="back-link" href="{{ url_for('worker_page', worker_id=worker_id) }}">&larr; {{ detail.worker.name }}'s overview</a>
+<h1 style="margin-bottom: 4px;">{{ detail.worker.name }} — {{ detail.location.name }}</h1>
+<p style="opacity:0.7; margin-bottom: 24px;">
+  {{ detail.dates | length }} shift{{ 's' if detail.dates | length != 1 else '' }} at this location
+</p>
+
+<div class="worker-layout">
+  {% include "worker_sidebar.html" %}
+
+  <div class="worker-main">
+    {% if detail.dates | length == 0 %}
+    <div class="plaque empty-state"><p>{{ detail.worker.name }} hasn't worked at {{ detail.location.name }} yet.</p></div>
+    {% else %}
+    <div class="section-title">Dates worked here</div>
+    <div class="plaque">
+      <table>
+        <thead><tr><th>Date</th></tr></thead>
+        <tbody>
+          {% for d in detail.dates %}
+          <tr><td class="mono">{{ d }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

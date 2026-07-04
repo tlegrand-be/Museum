@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Settings — Roster Ledger{% endblock %}
+{% block content %}
+
+<h1 style="margin-bottom: 4px;">Settings</h1>
+<p style="opacity:0.7; margin-bottom: 32px; font-size: 14px;">
+  Theme, chart colors, and the overview layout below are personal — they're saved to
+  this browser only and won't change what anyone else sees. Extraction and data
+  settings are shared and apply for everyone.
+</p>
+
+<div class="section-title">Theme <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— personal to this browser</span></div>
+<div class="theme-grid">
+  {% for key, t in themes.items() %}
+  <form method="post" action="{{ url_for('set_theme') }}">
+    <input type="hidden" name="theme" value="{{ key }}">
+    <button type="submit" class="theme-card {{ 'selected' if key == theme else '' }}" style="width:100%; text-align:left; border:2px solid {{ 'var(--brass)' if key == theme else 'var(--line)' }}; background:var(--panel-bg); cursor:pointer;">
+      <div class="theme-swatch-row">
+        {% for color in t.swatches %}
+        <div class="theme-swatch" style="background: {{ color }};"></div>
+        {% endfor %}
+      </div>
+      <div class="theme-name">{{ t.label }}{{ ' (current)' if key == theme else '' }}</div>
+    </button>
+  </form>
+  {% endfor %}
+</div>
+
+<div class="section-title" style="margin-top: 36px;">Museum wing chart colors <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— personal to this browser</span></div>
+<div class="plaque" style="margin-bottom: 36px;">
+  <form method="post" action="{{ url_for('set_colors') }}">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 20px;">
+      {% for group in ['FORUM', 'BALAT', 'MAGRITTE', 'Other'] %}
+      <div>
+        <label style="display:flex; align-items:center; gap:10px; font-family:'JetBrains Mono',monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:var(--heading-color);">
+          <input type="color" name="color_{{ group }}" value="{{ colors.get(group, default_colors.get(group)) }}"
+                 style="width:36px; height:36px; border:none; border-radius:50%; padding:0; cursor:pointer;">
+          {{ group }}
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <div style="margin-top: 20px; display:flex; gap:10px;">
+      <button class="btn brass" type="submit">Save colors</button>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('reset_colors') }}" style="margin-top: 10px;">
+    <button class="btn ghost" type="submit">Reset to defaults</button>
+  </form>
+</div>
+
+<div class="section-title">Overview page — what to show, and in what order <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— personal to this browser</span></div>
+<div style="margin-bottom: 36px;">
+  {% for w in widgets %}
+  <div class="widget-row {{ '' if w.enabled else 'disabled' }}">
+    <div class="widget-name">{{ widget_labels.get(w.id, w.id) }}</div>
+    <form method="post" action="{{ url_for('move_widget', widget_id=w.id, direction='up') }}">
+      <button class="widget-btn" type="submit" {{ 'disabled' if loop.first else '' }}>&uarr;</button>
+    </form>
+    <form method="post" action="{{ url_for('move_widget', widget_id=w.id, direction='down') }}">
+      <button class="widget-btn" type="submit" {{ 'disabled' if loop.last else '' }}>&darr;</button>
+    </form>
+    <form method="post" action="{{ url_for('toggle_widget', widget_id=w.id) }}">
+      <button class="widget-btn" type="submit">{{ 'Hide' if w.enabled else 'Show' }}</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="section-title">Extraction <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— shared, applies to everyone</span></div>
+<div class="plaque" style="margin-bottom: 36px;">
+  <form method="post" action="{{ url_for('set_time_slot') }}">
+    <label style="display:block; font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--heading-color); margin-bottom:8px;">
+      Time slot column to read from every roster photo
+    </label>
+    <div style="display:flex; gap: 10px; max-width: 400px;">
+      <input type="text" name="time_slot" value="{{ time_slot }}" style="flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:14px;">
+      <button class="btn brass" type="submit">Save</button>
+    </div>
+    <p style="font-size: 13px; opacity: 0.7; margin-top: 10px;">
+      This must match a column header exactly as it appears on your roster sheet, e.g. "10:00-11:45".
+    </p>
+  </form>
+</div>
+
+<div class="section-title">Danger zone <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— shared, applies to everyone</span></div>
+<div class="danger-zone">
+  <p style="margin: 0 0 12px; font-size: 14px;">
+    This permanently deletes all logged shifts, colleagues, and locations for everyone.
+    Notes and settings are kept. This cannot be undone.
+  </p>
+  <form method="post" action="{{ url_for('clear_data') }}" onsubmit="return confirm('This will permanently delete all shift data for everyone. Are you sure?');">
+    <input type="text" name="confirm" placeholder="Type DELETE to confirm" required>
+    <button class="btn danger" type="submit">Clear all roster data</button>
+  </form>
+</div>
+
+{% endblock %}

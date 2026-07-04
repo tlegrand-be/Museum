@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Upload roster — Roster Ledger{% endblock %}
+{% block content %}
+
+<a class="back-link" href="{{ url_for('index') }}">&larr; Overview</a>
+<h1 style="margin-bottom: 24px;">Upload today's roster</h1>
+
+<form class="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" id="uploadForm">
+  <label>Roster photo (whiteboard / paper sheet)</label>
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="photo" name="photo" accept="image/png,image/jpeg,image/webp" required hidden>
+    <div class="dropzone-inner" id="dropzoneInner">
+      <div class="dropzone-icon">&#8963;</div>
+      <div class="dropzone-text">Drag a photo here, or <span class="dropzone-link">browse your files</span></div>
+      <div class="dropzone-hint">PNG, JPG, or WEBP</div>
+    </div>
+    <img id="previewImg" alt="Selected roster preview">
+  </div>
+
+  <p style="margin-top:24px; font-size: 13px; opacity: 0.7;">
+    Gemini reads the date directly off the roster and pulls the 10:00-11:45 column,
+    matching grey/yellow/blue-highlighted workers to their location (orange-highlighted
+    cells are skipped). You'll get a chance to review and correct the date, names, and
+    locations before anything is saved.
+  </p>
+
+  <button class="btn brass" type="submit" style="margin-top: 20px;">Analyze photo</button>
+</form>
+
+<style>
+.dropzone {
+  position: relative;
+  border: 2px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--parchment-dim);
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  overflow: hidden;
+}
+.dropzone.dragover {
+  border-color: var(--brass);
+  background: #F6EFDC;
+}
+.dropzone-inner { text-align: center; padding: 24px; }
+.dropzone-icon { font-size: 28px; color: var(--brass); margin-bottom: 6px; }
+.dropzone-text { font-size: 14px; color: var(--charcoal); }
+.dropzone-link { color: var(--ink-green); text-decoration: underline; font-weight: 600; }
+.dropzone-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.55;
+  margin-top: 8px;
+}
+#previewImg {
+  display: none;
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+</style>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('photo');
+const inner = document.getElementById('dropzoneInner');
+const preview = document.getElementById('previewImg');
+
+function showPreview(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    preview.src = e.target.result;
+    preview.style.display = 'block';
+    inner.style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+dropzone.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) showPreview(fileInput.files[0]);
+});
+
+['dragenter', 'dragover'].forEach(evt => {
+  dropzone.addEventListener(evt, e => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+});
+
+['dragleave', 'drop'].forEach(evt => {
+  dropzone.addEventListener(evt, e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+  });
+});
+
+dropzone.addEventListener('drop', e => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    fileInput.files = files;
+    showPreview(files[0]);
+  }
+});
+</script>
+{% endblock %}

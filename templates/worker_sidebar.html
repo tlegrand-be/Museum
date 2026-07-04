@@ -1,0 +1,14 @@
+<div class="worker-sidebar">
+  {% set ns = namespace(current_group=None) %}
+  {% for loc in locations %}
+    {% if loc.group_name != ns.current_group %}
+      {% set ns.current_group = loc.group_name %}
+      <div class="wing-label">{{ loc.group_name }}</div>
+    {% endif %}
+    <a href="{{ url_for('worker_location_page', worker_id=worker_id_for_sidebar, location_id=loc.id) }}"
+       class="{{ 'active' if active_location_id == loc.id else '' }}">
+      <span class="dot" style="background: {{ group_colors.get(loc.group_name, '#8A8A78') }};"></span>
+      {{ loc.name }}
+    </a>
+  {% endfor %}
+</div>

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Colleagues — Roster Ledger{% endblock %}
+{% block content %}
+
+<h1 style="margin-bottom: 24px;">Colleagues</h1>
+
+{% if workers | length == 0 %}
+<div class="plaque empty-state"><p>No colleagues logged yet. Upload a roster to get started.</p></div>
+{% else %}
+<div class="card-grid">
+  {% for w in workers %}
+  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}">
+    <div class="name">{{ w.name }}</div>
+    <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Overview — Roster Ledger{% endblock %}
+{% block content %}
+
+{% if not group_chart.labels %}
+<div class="plaque empty-state">
+  <h2>No shifts logged yet</h2>
+  <p>Upload a photo of today's roster to get started.</p>
+  <p style="margin-top:20px;"><a class="btn brass" href="{{ url_for('upload') }}">Upload a roster photo</a></p>
+</div>
+{% else %}
+
+{% for w in widgets %}
+  {% if w.enabled %}
+
+    {% if w.id == 'days_covered' %}
+    <div class="days-plaque plaque" style="display:inline-block; margin-right:16px; margin-bottom:36px;">
+      <div class="num">{{ stats.total_days }}</div>
+      <div class="label">Days covered</div>
+    </div>
+    {% endif %}
+
+    {% if w.id == 'last_update' %}
+    <div class="days-plaque plaque" style="display:inline-block; margin-bottom:36px;">
+      <div class="num" style="font-size: 20px;">{{ last_update or "No uploads yet" }}</div>
+      <div class="label">Last update</div>
+    </div>
+    {% endif %}
+
+    {% if w.id == 'wing_chart' %}
+    <div class="chart-wrap">
+      <div class="section-title">Time by museum wing, per colleague</div>
+      <div style="height: 360px;">
+        <canvas id="wingChart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if w.id == 'colleagues_grid' %}
+    <div class="section-title">Colleagues — click for individual stats</div>
+    <div class="card-grid">
+      {% for wk in stats.workers %}
+      <a class="entity-card" href="{{ url_for('worker_page', worker_id=wk.id) }}">
+        <div class="name">{{ wk.name }}</div>
+        <div class="count">{{ wk.shift_count }} shift{{ 's' if wk.shift_count != 1 else '' }}</div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if w.id == 'locations_grid' %}
+    <div class="section-title">Locations — click for ranking</div>
+    <div class="card-grid">
+      {% for l in stats.locations %}
+      <a class="entity-card" href="{{ url_for('location_page', location_id=l.id) }}">
+        <div class="name">{{ l.name }}</div>
+        <div class="count">{{ l.shift_count }} shift{{ 's' if l.shift_count != 1 else '' }} · {{ l.group_name }}</div>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  {% endif %}
+{% endfor %}
+
+<script>
+const groupColors = {{ group_colors | tojson }};
+const groups = {{ group_chart.groups | tojson }};
+const labels = {{ group_chart.labels | tojson }};
+const data = {{ group_chart.data | tojson }};
+
+const datasets = groups.map(g => ({
+  label: g,
+  data: data[g],
+  backgroundColor: groupColors[g],
+  borderRadius: 2,
+}));
+
+const wingCanvas = document.getElementById('wingChart');
+if (wingCanvas) {
+  new Chart(wingCanvas, {
+    type: 'bar',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'JetBrains Mono', size: 11 } } },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: {
+            font: { size: 10 },
+            autoSkip: false,
+            maxRotation: 60,
+            minRotation: labels.length > 10 ? 60 : 0,
+          }
+        },
+        y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+      }
+    }
+  });
+}
+</script>
+{% endif %}
+{% endblock %}

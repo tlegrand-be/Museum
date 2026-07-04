@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.worker.name }} — Roster Ledger{% endblock %}
+{% block content %}
+
+<a class="back-link" href="{{ url_for('index') }}">&larr; Overview</a>
+<h1 style="margin-bottom: 4px;">{{ detail.worker.name }}</h1>
+<p style="opacity:0.7; margin-bottom: 24px;">{{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged</p>
+
+<div class="worker-layout">
+  {% include "worker_sidebar.html" %}
+
+  <div class="worker-main">
+    {% if detail.total_shifts == 0 %}
+    <div class="plaque empty-state"><p>No shifts logged for this colleague yet.</p></div>
+    {% else %}
+
+    <div class="chart-wrap">
+      <div class="section-title">Time spent by location</div>
+      <canvas id="byLocationChart" height="90"></canvas>
+    </div>
+
+    <div class="section-title">Shift history</div>
+    <div class="plaque">
+      <table>
+        <thead><tr><th>Date</th><th>Location</th></tr></thead>
+        <tbody>
+          {% for h in detail.history %}
+          <tr><td class="mono">{{ h.shift_date }}</td><td>{{ h.location }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <script>
+    new Chart(document.getElementById('byLocationChart'), {
+      type: 'bar',
+      data: {
+        labels: {{ detail.by_location | map(attribute='name') | list | tojson }},
+        datasets: [{
+          data: {{ detail.by_location | map(attribute='c') | list | tojson }},
+          backgroundColor: '#1F3A2E',
+          borderRadius: 3,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+    </script>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

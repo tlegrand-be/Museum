@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Locations — Roster Ledger{% endblock %}
+{% block content %}
+
+<h1 style="margin-bottom: 4px;">Locations</h1>
+<p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">Listed in the order they appear on the roster sheet.</p>
+
+{% if locations | length == 0 %}
+<div class="plaque empty-state"><p>No locations logged yet. Upload a roster to get started.</p></div>
+{% else %}
+<div class="card-grid">
+  {% for l in locations %}
+  <a class="entity-card" href="{{ url_for('location_page', location_id=l.id) }}">
+    <div class="name">
+      <span class="dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{{ group_colors.get(l.group_name, '#8A8A78') }}; margin-right:6px;"></span>
+      {{ l.name }}
+    </div>
+    <div class="count">{{ l.shift_count }} shift{{ 's' if l.shift_count != 1 else '' }} · {{ l.group_name }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

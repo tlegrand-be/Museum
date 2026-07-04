@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.location.name }} — Roster Ledger{% endblock %}
+{% block content %}
+
+<a class="back-link" href="{{ url_for('index') }}">&larr; Overview</a>
+<h1 style="margin-bottom: 4px;">{{ detail.location.name }}</h1>
+<p style="opacity:0.7; margin-bottom: 24px;">{{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged at this location</p>
+
+{% if detail.total_shifts == 0 %}
+<div class="plaque empty-state"><p>No shifts logged at this location yet.</p></div>
+{% else %}
+
+<div class="chart-wrap">
+  <div class="section-title">Ranking — who has worked here most</div>
+  <canvas id="rankingChart" height="90"></canvas>
+</div>
+
+<div class="section-title">Ranking table</div>
+<div class="plaque">
+  <table>
+    <thead><tr><th>#</th><th>Colleague</th><th>Shifts here</th></tr></thead>
+    <tbody>
+      {% for r in detail.ranking %}
+      <tr>
+        <td class="rank">{{ loop.index }}</td>
+        <td><a href="{{ url_for('worker_page', worker_id=r.id) }}">{{ r.name }}</a></td>
+        <td class="mono">{{ r.c }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="section-title" style="margin-top: 36px;">Day-by-day — who worked here and when</div>
+<div class="plaque">
+  <table>
+    <thead><tr><th>Date</th><th>Colleague</th></tr></thead>
+    <tbody>
+      {% for h in detail.history %}
+      <tr>
+        <td class="mono">{{ h.shift_date }}</td>
+        <td>{{ h.worker }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+new Chart(document.getElementById('rankingChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ detail.ranking | map(attribute='name') | list | tojson }},
+    datasets: [{
+      data: {{ detail.ranking | map(attribute='c') | list | tojson }},
+      backgroundColor: '#B8863B',
+      borderRadius: 3,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+  }
+});
+</script>
+{% endif %}
+{% endblock %}
