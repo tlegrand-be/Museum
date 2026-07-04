@@ -30,33 +30,46 @@ if not logger.handlers:
 
 
 def _build_prompt(time_slot):
-    return f"""You are reading a photo of a museum staff roster sheet titled something like
-"PLANNING SALLE GARDIENNAGE SEMAINE - ZAALBEWAKING WEEK" (French/Dutch bilingual).
+    return f"""You are reading a photo of a museum staff roster sheet. It is either a
+WEEKDAY sheet titled "PLANNING SALLE GARDIENNAGE SEMAINE - ZAALBEWAKING WEEK" with a main
+grid titled "WEEK-SEMAINE", or a WEEKEND sheet titled "PLANNING SALLE GARDIENNAGE WEEK-END
+- ZAALBEWAKING WEEKEND" with a main grid titled "WEEKEND". These two versions use DIFFERENT
+time-slot column boundaries. Do not assume which one this is — read the grid title and
+column headers directly off the sheet.
 
 The sheet has THREE distinct areas — pay close attention to only using the right one:
 
 1. A header area with the date and a "responsable/verantwoordelijke" box listing
    supervisor names. IGNORE the supervisor names — they are never part of the grid.
-   DO find the date printed in this header (often after "JEUDI-DONDERDAG :" or similar,
-   in DD/MM/YYYY format, e.g. "02/07/2026" meaning 2 July 2026).
+   DO find the date printed in this header (often after "JEUDI-DONDERDAG :" or
+   "DIMANCHE-ZONDAG :" or similar, in DD/MM/YYYY format, e.g. "02/07/2026" meaning
+   2 July 2026).
 2. A small separate mini-table near the top-left (rows starting with a time like
-   "17.30 ..."). IGNORE this mini-table — it is a separate schedule.
-3. The MAIN GRID, titled "WEEK-SEMAINE", which is what you must read for shifts. It has:
+   "17.30 ..." or "18.30 ..."). IGNORE this mini-table — it is a separate schedule.
+3. The MAIN GRID, titled either "WEEK-SEMAINE" or "WEEKEND", which is what you must
+   read for shifts. It has:
    - A left column labeled "bewakingspost" listing location/post names — every row here,
      including "Coordinateur-Coördinateur" and "Mobile/Mobiel", is a valid location.
    - A "pause/pauze" column — IGNORE this column entirely.
-   - Time-slot columns as headers, such as "10:00-11:45", "11:45-12:30", etc. Each cell
+   - Time-slot columns as headers, such as "10:00-11:45", "11:00-12:15", "11:45-12:30",
+     etc. — the exact boundaries differ between weekday and weekend sheets. Each cell
      holds a person's name, sometimes with a checkmark or asterisks, shaded with a
      background color (plain/grey, yellow, blue, green, or orange).
 
-Your job has two parts:
+Your job has three parts:
 
 PART A — Find the date. Read the date from the header area and convert it to ISO
 format YYYY-MM-DD. If you cannot find or are not confident about the date, set it to null.
 
-PART B — Extract shifts. Extract ONLY the column in the MAIN GRID whose header matches
-the time slot "{time_slot}". Ignore every other time-slot column, even if it has names in it.
-For each row (location) in the main grid, in that one column:
+PART B — Identify the grid. Read the MAIN GRID's title exactly as printed — it will be
+"WEEK-SEMAINE" or "WEEKEND". Then read every time-slot column header in that grid, left
+to right, exactly as printed (e.g. "10:00-11:45").
+
+PART C — Extract shifts. Extract ONLY the column in the MAIN GRID whose header matches
+the time slot "{time_slot}" exactly. Ignore every other time-slot column, even if it has
+names in it. If no column header matches "{time_slot}" exactly, return "shifts": [] —
+do not substitute a different column or guess. For each row (location) in the main grid,
+in that one matching column:
 
 1. SKIP any name whose cell background is orange/salmon-colored — orange marks a
    break-time overlap placeholder, not a real assignment.
@@ -71,12 +84,12 @@ Return ONLY a single JSON object, nothing else. No markdown fences, no commentar
 Format exactly like this:
 {{
   "date": "YYYY-MM-DD" or null,
+  "grid_title": "WEEK-SEMAINE" or "WEEKEND",
+  "time_slot_columns": ["<column header 1>", "<column header 2>", ...],
   "shifts": [
     {{"name": "<person's name>", "position": "<location/row label>"}}
   ]
 }}
-
-If there are no readable shifts for "{time_slot}", return "shifts": [].
 """
 
 
@@ -168,6 +181,18 @@ def extract_roster(image_path, time_slot=None):
     raw_shifts = data.get("shifts", []) if isinstance(data, dict) else []
     detected_date = _parse_iso_date(data.get("date") if isinstance(data, dict) else None)
 
+    grid_title = data.get("grid_title") if isinstance(data, dict) else None
+    if not isinstance(grid_title, str) or not grid_title.strip():
+        grid_title = None
+    else:
+        grid_title = grid_title.strip()
+
+    raw_columns = data.get("time_slot_columns", []) if isinstance(data, dict) else []
+    if isinstance(raw_columns, list):
+        time_slot_columns = [str(c).strip() for c in raw_columns if str(c).strip()]
+    else:
+        time_slot_columns = []
+
     cleaned = []
     for item in raw_shifts:
         name = _strip_stars(str(item.get("name", "")))
@@ -179,8 +204,13 @@ def extract_roster(image_path, time_slot=None):
     entries = _dedupe_keep_first(cleaned)
 
     logger.info(
-        "PARSED image=%s detected_date=%s entry_count=%d",
-        image_name, detected_date, len(entries),
+        "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s entry_count=%d",
+        image_name, detected_date, grid_title, time_slot_columns, len(entries),
     )
 
-    return {"date": detected_date, "entries": entries}
+    return {
+        "date": detected_date,
+        "entries": entries,
+        "grid_title": grid_title,
+        "time_slot_columns": time_slot_columns,
+    }
