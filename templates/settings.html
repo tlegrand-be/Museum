@@ -67,22 +67,6 @@
   {% endfor %}
 </div>
 
-<div class="section-title">Extraction <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— shared, applies to everyone</span></div>
-<div class="plaque" style="margin-bottom: 36px;">
-  <form method="post" action="{{ url_for('set_time_slot') }}">
-    <label style="display:block; font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--heading-color); margin-bottom:8px;">
-      Time slot column to read from every roster photo
-    </label>
-    <div style="display:flex; gap: 10px; max-width: 400px;">
-      <input type="text" name="time_slot" value="{{ time_slot }}" style="flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:14px;">
-      <button class="btn brass" type="submit">Save</button>
-    </div>
-    <p style="font-size: 13px; opacity: 0.7; margin-top: 10px;">
-      This must match a column header exactly as it appears on your roster sheet, e.g. "10:00-11:45".
-    </p>
-  </form>
-</div>
-
 <div class="section-title">Danger zone <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— shared, applies to everyone</span></div>
 <div class="danger-zone">
   <p style="margin: 0 0 12px; font-size: 14px;">

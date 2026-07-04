@@ -1,5 +1,4 @@
 import os
-import re
 import uuid
 import json
 from datetime import date, timedelta
@@ -37,12 +36,6 @@ PENDING_DIR.mkdir(parents=True, exist_ok=True)
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
-
-
-def _normalize_slot(label):
-    """Collapse whitespace so minor formatting differences (e.g. a stray
-    space around the dash) don't cause a false time-slot mismatch."""
-    return re.sub(r"\s+", "", label or "")
 
 
 def get_cookie_json(name, default):
@@ -143,10 +136,8 @@ def upload():
     filepath = UPLOAD_DIR / tmp_name
     file.save(filepath)
 
-    time_slot = database.get_setting("time_slot", gemini_extract.DEFAULT_TIME_SLOT)
-
     try:
-        result = gemini_extract.extract_roster(str(filepath), time_slot=time_slot)
+        result = gemini_extract.extract_roster(str(filepath))
     except Exception as e:
         flash(f"Could not read the image: {e}", "error")
         return redirect(url_for("upload"))
@@ -155,18 +146,13 @@ def upload():
     detected_date = result.get("date") or date.today().isoformat()
     detected_columns = result.get("time_slot_columns") or []
 
-    if detected_columns and _normalize_slot(time_slot) not in {_normalize_slot(c) for c in detected_columns}:
-        grid_title = result.get("grid_title") or "a different"
-        flash(
-            f"This looks like a {grid_title} roster, with time slots: {', '.join(detected_columns)}. "
-            f"Your current default (\"{time_slot}\") isn't one of them — update it in Settings, "
-            f"or double-check this is the right photo.",
-            "error",
-        )
+    if not detected_columns:
+        flash("Could not identify the time-slot columns on that roster. Try a clearer photo.", "error")
         return redirect(url_for("upload"))
 
     if not entries:
-        flash("No names/positions were detected in that image. Try a clearer photo.", "error")
+        extracted_slot = result.get("extracted_time_slot") or detected_columns[0]
+        flash(f'No names were detected in the "{extracted_slot}" column for that date. Try a clearer photo.', "error")
         return redirect(url_for("upload"))
 
     token = uuid.uuid4().hex
@@ -326,19 +312,18 @@ def statistics_page():
 # ---------------- Settings ----------------
 # Theme, overview widget layout, and wing colors are personal preferences,
 # stored in a cookie on your browser only -- they never affect what other
-# visitors to this dashboard see. Time slot and data resets are shared,
-# since they affect the underlying data everyone sees.
+# visitors to this dashboard see. Data reset is shared, since it affects
+# the underlying data everyone sees.
 
 @app.route("/settings")
 def settings_page():
     theme = request.cookies.get("theme", settings_defs.DEFAULT_THEME)
     widgets = get_cookie_json("overview_widgets", settings_defs.DEFAULT_OVERVIEW_WIDGETS)
-    time_slot = database.get_setting("time_slot", gemini_extract.DEFAULT_TIME_SLOT)
     colors = effective_group_colors()
     return render_template(
         "settings.html", theme=theme, themes=settings_defs.THEMES,
         widgets=widgets, widget_labels=settings_defs.WIDGET_LABELS,
-        time_slot=time_slot, colors=colors, default_colors=location_rules.GROUP_COLORS,
+        colors=colors, default_colors=location_rules.GROUP_COLORS,
     )
 
 
@@ -371,15 +356,6 @@ def reset_colors():
     resp.delete_cookie("wing_colors")
     flash("Chart colors reset to defaults (this browser only).", "success")
     return resp
-
-
-@app.route("/settings/time-slot", methods=["POST"])
-def set_time_slot():
-    ts = request.form.get("time_slot", "").strip()
-    if ts:
-        database.set_setting("time_slot", ts)
-        flash("Default time slot updated (applies to everyone).", "success")
-    return redirect(url_for("settings_page"))
 
 
 @app.route("/settings/widget/<widget_id>/toggle", methods=["POST"])
