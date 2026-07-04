@@ -1,7 +1,9 @@
 import os
 import re
 import json
+import logging
 from datetime import date
+from pathlib import Path
 
 from google import genai
 from google.genai import types
@@ -12,6 +14,19 @@ MODEL_NAME = "gemini-2.5-flash"
 
 # The one time-slot column this dashboard always tracks. Not user-configurable in the UI.
 DEFAULT_TIME_SLOT = "10:00-11:45"
+
+# Diagnostic log for every extraction attempt: what was requested, what Gemini
+# actually returned, and how many entries were parsed out of it. Lets Sensei
+# see *why* an upload produced a bad result instead of just that it did.
+LOG_DIR = Path(__file__).parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+logger = logging.getLogger("gemini_extract")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.FileHandler(LOG_DIR / "gemini_extraction.log", encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
+    logger.addHandler(_handler)
 
 
 def _build_prompt(time_slot):
@@ -114,6 +129,7 @@ def extract_roster(image_path, time_slot=None):
     first entry.
     """
     time_slot = (time_slot or DEFAULT_TIME_SLOT).strip()
+    image_name = os.path.basename(image_path)
     client = _get_client()
 
     with open(image_path, "rb") as f:
@@ -121,6 +137,8 @@ def extract_roster(image_path, time_slot=None):
 
     ext = os.path.splitext(image_path)[1].lower()
     mime = "image/png" if ext == ".png" else "image/jpeg"
+
+    logger.info("REQUEST image=%s requested_time_slot=%s", image_name, time_slot)
 
     response = client.models.generate_content(
         model=MODEL_NAME,
@@ -130,7 +148,10 @@ def extract_roster(image_path, time_slot=None):
         ],
     )
 
-    text = (response.text or "").strip()
+    raw_text = response.text or ""
+    logger.info("RESPONSE image=%s raw_text=%r", image_name, raw_text)
+
+    text = raw_text.strip()
     text = re.sub(r"^```(json)?", "", text.strip())
     text = re.sub(r"```$", "", text.strip()).strip()
 
@@ -141,6 +162,7 @@ def extract_roster(image_path, time_slot=None):
         if match:
             data = json.loads(match.group(0))
         else:
+            logger.warning("PARSE_FAILED image=%s could not extract JSON from response", image_name)
             raise ValueError(f"Could not parse Gemini response as JSON:\n{text}")
 
     raw_shifts = data.get("shifts", []) if isinstance(data, dict) else []
@@ -155,5 +177,10 @@ def extract_roster(image_path, time_slot=None):
             cleaned.append({"name": name, "position": position or "Unknown"})
 
     entries = _dedupe_keep_first(cleaned)
+
+    logger.info(
+        "PARSED image=%s detected_date=%s entry_count=%d",
+        image_name, detected_date, len(entries),
+    )
 
     return {"date": detected_date, "entries": entries}

@@ -4,3 +4,5 @@ uploads/*
 __pycache__/
 *.pyc
 .env
+project-knowledge/
+logs/
