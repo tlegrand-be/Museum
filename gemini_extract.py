@@ -12,12 +12,9 @@ import location_rules
 
 MODEL_NAME = "gemini-2.5-flash"
 
-# The one time-slot column this dashboard always tracks. Not user-configurable in the UI.
-DEFAULT_TIME_SLOT = "10:00-11:45"
-
-# Diagnostic log for every extraction attempt: what was requested, what Gemini
-# actually returned, and how many entries were parsed out of it. Lets Sensei
-# see *why* an upload produced a bad result instead of just that it did.
+# Diagnostic log for every extraction attempt: what Gemini actually returned
+# and how many entries were parsed out of it. Lets Sensei see *why* an upload
+# produced a bad result instead of just that it did.
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
@@ -29,8 +26,8 @@ if not logger.handlers:
     logger.addHandler(_handler)
 
 
-def _build_prompt(time_slot):
-    return f"""You are reading a photo of a museum staff roster sheet. It is either a
+def _build_prompt():
+    return """You are reading a photo of a museum staff roster sheet. It is either a
 WEEKDAY sheet titled "PLANNING SALLE GARDIENNAGE SEMAINE - ZAALBEWAKING WEEK" with a main
 grid titled "WEEK-SEMAINE", or a WEEKEND sheet titled "PLANNING SALLE GARDIENNAGE WEEK-END
 - ZAALBEWAKING WEEKEND" with a main grid titled "WEEKEND". These two versions use DIFFERENT
@@ -50,11 +47,14 @@ The sheet has THREE distinct areas — pay close attention to only using the rig
    read for shifts. It has:
    - A left column labeled "bewakingspost" listing location/post names — every row here,
      including "Coordinateur-Coördinateur" and "Mobile/Mobiel", is a valid location.
-   - A "pause/pauze" column — IGNORE this column entirely.
-   - Time-slot columns as headers, such as "10:00-11:45", "11:00-12:15", "11:45-12:30",
-     etc. — the exact boundaries differ between weekday and weekend sheets. Each cell
-     holds a person's name, sometimes with a checkmark or asterisks, shaded with a
-     background color (plain/grey, yellow, blue, green, or orange).
+   - A "pause/pauze" column — IGNORE this column entirely. It sometimes contains a
+     time range too (e.g. a worker's break time) — that is NOT a time-slot column,
+     it is a per-row break annotation. Do not count it among the time-slot columns.
+   - After the "pause/pauze" column, a series of TIME-SLOT columns, each headed by a
+     clock-time range such as "10:00-11:45" or "11:00-12:15". The exact boundaries
+     differ between weekday and weekend sheets. Each cell holds a person's name,
+     sometimes with a checkmark or asterisks, shaded with a background color
+     (plain/grey, yellow, blue, green, or orange).
 
 Your job has three parts:
 
@@ -62,14 +62,13 @@ PART A — Find the date. Read the date from the header area and convert it to I
 format YYYY-MM-DD. If you cannot find or are not confident about the date, set it to null.
 
 PART B — Identify the grid. Read the MAIN GRID's title exactly as printed — it will be
-"WEEK-SEMAINE" or "WEEKEND". Then read every time-slot column header in that grid, left
-to right, exactly as printed (e.g. "10:00-11:45").
+"WEEK-SEMAINE" or "WEEKEND". Then read every TIME-SLOT column header in that grid
+(excluding "pause/pauze"), left to right, exactly as printed (e.g. "10:00-11:45").
 
-PART C — Extract shifts. Extract ONLY the column in the MAIN GRID whose header matches
-the time slot "{time_slot}" exactly. Ignore every other time-slot column, even if it has
-names in it. If no column header matches "{time_slot}" exactly, return "shifts": [] —
-do not substitute a different column or guess. For each row (location) in the main grid,
-in that one matching column:
+PART C — Extract shifts from the FIRST time-slot column only — the leftmost column
+whose header is a clock-time range, immediately after "pause/pauze". Ignore every
+other time-slot column to its right, even if it has names in it. For each row
+(location) in the main grid, in that one first column:
 
 1. SKIP any name whose cell background is orange/salmon-colored — orange marks a
    break-time overlap placeholder, not a real assignment.
@@ -82,14 +81,15 @@ in that one matching column:
 Return ONLY a single JSON object, nothing else. No markdown fences, no commentary.
 
 Format exactly like this:
-{{
+{
   "date": "YYYY-MM-DD" or null,
   "grid_title": "WEEK-SEMAINE" or "WEEKEND",
   "time_slot_columns": ["<column header 1>", "<column header 2>", ...],
+  "extracted_time_slot": "<the exact header of the first time-slot column you extracted from>",
   "shifts": [
-    {{"name": "<person's name>", "position": "<location/row label>"}}
+    {"name": "<person's name>", "position": "<location/row label>"}
   ]
-}}
+}
 """
 
 
@@ -134,14 +134,24 @@ def _parse_iso_date(raw):
         return None
 
 
-def extract_roster(image_path, time_slot=None):
-    """Send the roster image to Gemini. Returns a dict:
-    {"date": "YYYY-MM-DD" or None, "entries": [{"name", "position"}, ...]}
+def _clean_optional_str(value):
+    """Gemini sometimes omits a field or returns an empty string -- normalize
+    both to None so callers get a consistent "not provided" signal."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def extract_roster(image_path):
+    """Send the roster image to Gemini. Always extracts from the FIRST
+    time-slot column present on the sheet (10:00-11:45 on weekday sheets,
+    11:00-12:15 on weekend sheets, etc.) rather than a fixed target, since
+    the two sheet layouts use different column boundaries. Returns a dict:
+    {"date", "entries", "grid_title", "time_slot_columns", "extracted_time_slot"}.
     Names have stars stripped, positions are normalized to canonical labels,
     and duplicate people (same name, multiple locations) are collapsed to the
     first entry.
     """
-    time_slot = (time_slot or DEFAULT_TIME_SLOT).strip()
     image_name = os.path.basename(image_path)
     client = _get_client()
 
@@ -151,13 +161,13 @@ def extract_roster(image_path, time_slot=None):
     ext = os.path.splitext(image_path)[1].lower()
     mime = "image/png" if ext == ".png" else "image/jpeg"
 
-    logger.info("REQUEST image=%s requested_time_slot=%s", image_name, time_slot)
+    logger.info("REQUEST image=%s", image_name)
 
     response = client.models.generate_content(
         model=MODEL_NAME,
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime),
-            _build_prompt(time_slot),
+            _build_prompt(),
         ],
     )
 
@@ -180,12 +190,10 @@ def extract_roster(image_path, time_slot=None):
 
     raw_shifts = data.get("shifts", []) if isinstance(data, dict) else []
     detected_date = _parse_iso_date(data.get("date") if isinstance(data, dict) else None)
-
-    grid_title = data.get("grid_title") if isinstance(data, dict) else None
-    if not isinstance(grid_title, str) or not grid_title.strip():
-        grid_title = None
-    else:
-        grid_title = grid_title.strip()
+    grid_title = _clean_optional_str(data.get("grid_title") if isinstance(data, dict) else None)
+    extracted_time_slot = _clean_optional_str(
+        data.get("extracted_time_slot") if isinstance(data, dict) else None
+    )
 
     raw_columns = data.get("time_slot_columns", []) if isinstance(data, dict) else []
     if isinstance(raw_columns, list):
@@ -204,8 +212,10 @@ def extract_roster(image_path, time_slot=None):
     entries = _dedupe_keep_first(cleaned)
 
     logger.info(
-        "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s entry_count=%d",
-        image_name, detected_date, grid_title, time_slot_columns, len(entries),
+        "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s "
+        "extracted_time_slot=%s entry_count=%d",
+        image_name, detected_date, grid_title, time_slot_columns,
+        extracted_time_slot, len(entries),
     )
 
     return {
@@ -213,4 +223,5 @@ def extract_roster(image_path, time_slot=None):
         "entries": entries,
         "grid_title": grid_title,
         "time_slot_columns": time_slot_columns,
+        "extracted_time_slot": extracted_time_slot,
     }
