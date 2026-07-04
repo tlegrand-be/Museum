@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import json
 from datetime import date, timedelta
@@ -36,6 +37,12 @@ PENDING_DIR.mkdir(parents=True, exist_ok=True)
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
+
+
+def _normalize_slot(label):
+    """Collapse whitespace so minor formatting differences (e.g. a stray
+    space around the dash) don't cause a false time-slot mismatch."""
+    return re.sub(r"\s+", "", label or "")
 
 
 def get_cookie_json(name, default):
@@ -146,6 +153,17 @@ def upload():
 
     entries = result.get("entries", [])
     detected_date = result.get("date") or date.today().isoformat()
+    detected_columns = result.get("time_slot_columns") or []
+
+    if detected_columns and _normalize_slot(time_slot) not in {_normalize_slot(c) for c in detected_columns}:
+        grid_title = result.get("grid_title") or "a different"
+        flash(
+            f"This looks like a {grid_title} roster, with time slots: {', '.join(detected_columns)}. "
+            f"Your current default (\"{time_slot}\") isn't one of them — update it in Settings, "
+            f"or double-check this is the right photo.",
+            "error",
+        )
+        return redirect(url_for("upload"))
 
     if not entries:
         flash("No names/positions were detected in that image. Try a clearer photo.", "error")
