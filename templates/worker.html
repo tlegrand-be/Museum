@@ -38,7 +38,7 @@
         labels: {{ detail.by_location | map(attribute='name') | list | tojson }},
         datasets: [{
           data: {{ detail.by_location | map(attribute='c') | list | tojson }},
-          backgroundColor: '#1F3A2E',
+          backgroundColor: themeColor('--ink-green'),
           borderRadius: 3,
         }]
       },

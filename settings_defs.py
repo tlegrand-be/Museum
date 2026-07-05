@@ -2,11 +2,14 @@ DEFAULT_THEME = "classic"
 
 # Swatches shown on the settings page (3 representative colors per theme).
 THEMES = {
-    "classic": {"label": "Museum Classic", "swatches": ["#1F3A2E", "#B8863B", "#F1E9D8"]},
-    "clear":   {"label": "Clear & Light", "swatches": ["#1E3A8A", "#2563EB", "#F8FAFC"]},
-    "dark":    {"label": "Dark Gallery", "swatches": ["#0B1220", "#38BDF8", "#131C2B"]},
-    "sandy":   {"label": "Sandy Dune", "swatches": ["#8A5A3B", "#C97B4A", "#FFF6E9"]},
-    "brown":   {"label": "Espresso", "swatches": ["#3B2418", "#C98A4B", "#EFE3D6"]},
+    "classic":   {"label": "Museum Classic", "swatches": ["#1F3A2E", "#B8863B", "#F1E9D8"]},
+    "clear":     {"label": "Clear & Light", "swatches": ["#1E3A8A", "#2563EB", "#F8FAFC"]},
+    "dark":      {"label": "Dark Gallery", "swatches": ["#0B1220", "#38BDF8", "#131C2B"]},
+    "sandy":     {"label": "Sandy Dune", "swatches": ["#8A5A3B", "#C97B4A", "#FFF6E9"]},
+    "brown":     {"label": "Espresso", "swatches": ["#3B2418", "#C98A4B", "#EFE3D6"]},
+    "slate":     {"label": "Slate Office", "swatches": ["#334155", "#0EA5A4", "#F1F5F9"]},
+    "burgundy":  {"label": "Burgundy Gallery", "swatches": ["#5C1A2B", "#B08D57", "#FAF3EC"]},
+    "midnight":  {"label": "Midnight Forest", "swatches": ["#0F1F17", "#D4A85C", "#131F19"]},
 }
 
 DEFAULT_OVERVIEW_WIDGETS = [

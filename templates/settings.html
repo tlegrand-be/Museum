@@ -67,6 +67,7 @@
   {% endfor %}
 </div>
 
+{% if is_admin %}
 <div class="section-title">Danger zone <span style="opacity:0.5; font-weight:normal; text-transform:none; letter-spacing:0;">— shared, applies to everyone</span></div>
 <div class="danger-zone">
   <p style="margin: 0 0 12px; font-size: 14px;">
@@ -78,5 +79,6 @@
     <button class="btn danger" type="submit">Clear all roster data</button>
   </form>
 </div>
+{% endif %}
 
 {% endblock %}

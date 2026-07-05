@@ -2,6 +2,7 @@ import os
 import uuid
 import json
 from datetime import date, timedelta
+from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,9 +26,11 @@ PENDING_DIR = BASE_DIR / "instance" / "pending"
 ALLOWED_EXT = {"png", "jpg", "jpeg", "webp"}
 COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 5  # 5 years
 
-# Shared site passcode. Override with the SITE_PASSCODE environment variable
-# if you want to change it without editing code.
+# Two shared passcodes. SITE_PASSCODE unlocks full admin access; VIEWER_PASSCODE
+# unlocks read-only access plus the (cookie-only, personal) settings page.
+# Override either with the matching environment variable.
 SITE_PASSCODE = os.environ.get("SITE_PASSCODE", "4444")
+VIEWER_PASSCODE = os.environ.get("VIEWER_PASSCODE", "1234")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
@@ -72,7 +75,7 @@ def ensure_db():
 def require_passcode():
     if request.endpoint in ("passcode_page", "static"):
         return
-    if not session.get("authenticated"):
+    if not session.get("role"):
         return redirect(url_for("passcode_page"))
 
 
@@ -81,7 +84,21 @@ def inject_globals():
     return {
         "current_theme": request.cookies.get("theme", settings_defs.DEFAULT_THEME),
         "group_colors": effective_group_colors(),
+        "is_admin": session.get("role") == "admin",
     }
+
+
+def admin_required(view):
+    """Gate a whole view to the admin passcode. Viewers get bounced to the
+    overview with an explanation instead of a raw 403, since this app has no
+    separate admin area -- viewers can otherwise reach every URL."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if session.get("role") != "admin":
+            flash("You need admin access to do that.", "error")
+            return redirect(url_for("index"))
+        return view(*args, **kwargs)
+    return wrapped
 
 
 # ---------------- Passcode gate ----------------
@@ -92,7 +109,11 @@ def passcode_page():
         code = request.form.get("passcode", "")
         if code == SITE_PASSCODE:
             session.permanent = True
-            session["authenticated"] = True
+            session["role"] = "admin"
+            return redirect(url_for("index"))
+        if code == VIEWER_PASSCODE:
+            session.permanent = True
+            session["role"] = "viewer"
             return redirect(url_for("index"))
         flash("Incorrect passcode.", "error")
     return render_template("passcode.html")
@@ -100,7 +121,7 @@ def passcode_page():
 
 @app.route("/lock")
 def lock():
-    session.pop("authenticated", None)
+    session.pop("role", None)
     return redirect(url_for("passcode_page"))
 
 
@@ -121,6 +142,7 @@ def index():
 # ---------------- Upload / Review ----------------
 
 @app.route("/upload", methods=["GET", "POST"])
+@admin_required
 def upload():
     if request.method == "GET":
         return render_template("upload.html")
@@ -149,6 +171,15 @@ def upload():
     detected_date = result.get("date") or date.today().isoformat()
     detected_columns = result.get("time_slot_columns") or []
 
+    # Apply previously-learned corrections for cropped/partial location labels
+    # (e.g. a bare "1A" that a human previously corrected to "Argenteau" on
+    # the Review screen) before showing entries for review.
+    aliases = database.get_location_aliases()
+    for e in entries:
+        key = (e.get("raw_position") or "").strip().lower()
+        if key in aliases:
+            e["position"] = aliases[key]
+
     if not detected_columns:
         flash("Could not identify the time-slot columns on that roster. Try a clearer photo.", "error")
         return redirect(url_for("upload"))
@@ -170,6 +201,7 @@ def upload():
 
 
 @app.route("/review/<token>", methods=["GET", "POST"])
+@admin_required
 def review(token):
     pending_path = PENDING_DIR / f"{token}.json"
     if not pending_path.exists():
@@ -181,12 +213,24 @@ def review(token):
     if request.method == "POST":
         names = request.form.getlist("name")
         positions = request.form.getlist("position")
+        raw_positions = request.form.getlist("raw_position")
+        orig_positions = request.form.getlist("orig_position")
         keep = request.form.getlist("keep")
 
         entries = []
         for i in range(len(names)):
-            if str(i) in keep:
-                entries.append({"name": names[i], "position": positions[i]})
+            if str(i) not in keep:
+                continue
+            submitted = positions[i].strip()
+            entries.append({"name": names[i], "position": submitted})
+
+            # If this label wasn't already resolved by a known rule (raw ==
+            # the shown, pre-edit value) and the user corrected it here,
+            # remember that fragment for next time.
+            raw = raw_positions[i] if i < len(raw_positions) else ""
+            orig = orig_positions[i] if i < len(orig_positions) else ""
+            if raw.strip().lower() == orig.strip().lower() and submitted.lower() != orig.strip().lower():
+                database.save_location_alias(raw, submitted)
 
         shift_date = request.form.get("shift_date") or data["shift_date"]
         saved, skipped = database.save_shifts(entries, shift_date, data.get("source_image"))
@@ -199,6 +243,32 @@ def review(token):
         return redirect(url_for("index"))
 
     return render_template("review.html", token=token, data=data)
+
+
+@app.route("/uploads")
+def uploads_page():
+    uploads = database.list_uploads()
+    return render_template("uploads.html", uploads=uploads)
+
+
+@app.route("/uploads/delete", methods=["POST"])
+@admin_required
+def delete_upload():
+    source_image = request.form.get("source_image")
+    shift_date = request.form.get("shift_date")
+    if not source_image or not shift_date:
+        abort(400)
+    deleted = database.delete_upload(source_image, shift_date)
+    flash(f"Removed {deleted} shift{'s' if deleted != 1 else ''} from that upload.", "success")
+    return redirect(url_for("uploads_page"))
+
+
+@app.route("/uploads/image/<path:filename>")
+def upload_image(filename):
+    filepath = (UPLOAD_DIR / filename).resolve()
+    if UPLOAD_DIR.resolve() not in filepath.parents or not filepath.is_file():
+        abort(404)
+    return send_file(filepath)
 
 
 # ---------------- Colleagues / Locations ----------------
@@ -253,6 +323,9 @@ def location_page(location_id):
 @app.route("/notes", methods=["GET", "POST"])
 def notes_page():
     if request.method == "POST":
+        if session.get("role") != "admin":
+            flash("You need admin access to do that.", "error")
+            return redirect(url_for("notes_page"))
         tag = request.form.get("tag", "").strip()
         note_date = request.form.get("note_date") or date.today().isoformat()
         comment = request.form.get("comment", "").strip()
@@ -271,6 +344,7 @@ def notes_page():
 
 
 @app.route("/notes/<int:note_id>/edit", methods=["GET", "POST"])
+@admin_required
 def edit_note(note_id):
     note = database.get_note(note_id)
     if not note:
@@ -292,6 +366,7 @@ def edit_note(note_id):
 
 
 @app.route("/notes/<int:note_id>/delete", methods=["POST"])
+@admin_required
 def delete_note(note_id):
     database.delete_note(note_id)
     flash("Note deleted.", "success")
@@ -387,6 +462,7 @@ def move_widget(widget_id, direction):
 
 
 @app.route("/settings/clear-data", methods=["POST"])
+@admin_required
 def clear_data():
     confirm = request.form.get("confirm", "")
     if confirm == "DELETE":

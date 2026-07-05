@@ -52,6 +52,11 @@ def init_db():
             comment TEXT NOT NULL,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS location_aliases (
+            raw_label TEXT PRIMARY KEY,
+            canonical TEXT NOT NULL
+        );
         """
     )
     # Migration safety net: if an older database already has a `locations`
@@ -82,6 +87,73 @@ def get_or_create_location(conn, name, group_name="Other"):
         "INSERT INTO locations (name, group_name) VALUES (?, ?)", (name, group_name)
     )
     return cur.lastrowid
+
+
+def get_location_aliases():
+    """Map of lowercased raw OCR fragment -> canonical location name, learned
+    from past corrections made on the Review screen."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT raw_label, canonical FROM location_aliases").fetchall()
+        return {r["raw_label"]: r["canonical"] for r in rows}
+    finally:
+        conn.close()
+
+
+def save_location_alias(raw_label, canonical):
+    """Remember that a raw OCR fragment (e.g. a cropped "1A") resolves to a
+    canonical location name, so future uploads don't need the same manual fix."""
+    raw_label = (raw_label or "").strip().lower()
+    canonical = (canonical or "").strip()
+    if not raw_label or not canonical or raw_label == canonical.lower():
+        return
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO location_aliases (raw_label, canonical) VALUES (?, ?) "
+            "ON CONFLICT(raw_label) DO UPDATE SET canonical = excluded.canonical",
+            (raw_label, canonical),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_uploads():
+    """Every past upload batch (grouped by the source image file behind it),
+    newest first, with enough detail to identify and delete a bad one."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT source_image, shift_date, COUNT(*) shift_count,
+                      MIN(created_at) uploaded_at
+               FROM shifts
+               WHERE source_image IS NOT NULL
+               GROUP BY source_image, shift_date
+               ORDER BY uploaded_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_upload(source_image, shift_date):
+    """Remove every shift from one upload batch, then drop any worker or
+    location that's left with zero shifts anywhere as a result (they only
+    ever exist as a side effect of a saved shift)."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "DELETE FROM shifts WHERE source_image = ? AND shift_date = ?",
+            (source_image, shift_date),
+        )
+        deleted = cur.rowcount
+        conn.execute("DELETE FROM workers WHERE id NOT IN (SELECT DISTINCT worker_id FROM shifts)")
+        conn.execute("DELETE FROM locations WHERE id NOT IN (SELECT DISTINCT location_id FROM shifts)")
+        conn.commit()
+        return deleted
+    finally:
+        conn.close()
 
 
 def save_shifts(entries, shift_date, source_image=None):

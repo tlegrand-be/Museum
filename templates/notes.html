@@ -8,29 +8,29 @@
   requests, incidents — grouped by category with a full history of dates and comments.
 </p>
 
+{% if is_admin %}
 <div class="plaque" style="margin-bottom: 36px;">
   <div class="section-title" style="margin-bottom: 16px;">New category or entry</div>
   <form method="post" action="{{ url_for('notes_page') }}">
     <div class="note-form-grid">
       <div>
-        <label style="display:block; font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--heading-color); margin-bottom:8px;">Category</label>
-        <input type="text" name="tag" list="tag-list" placeholder="e.g. Elevator, Water leak, Alarm system" required
-               style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:14px;">
+        <label class="field-label">Category</label>
+        <input type="text" name="tag" list="tag-list" placeholder="e.g. Elevator, Water leak, Alarm system" required class="field-input">
         <datalist id="tag-list">
           {% for t in tags %}<option value="{{ t }}">{% endfor %}
         </datalist>
       </div>
       <div>
-        <label style="display:block; font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--heading-color); margin-bottom:8px;">Date</label>
-        <input type="date" name="note_date" value="{{ today }}" required
-               style="width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter',sans-serif; font-size:14px;">
+        <label class="field-label">Date</label>
+        <input type="date" name="note_date" value="{{ today }}" required class="field-input">
       </div>
     </div>
-    <label style="display:block; font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--heading-color); margin: 16px 0 8px;">Comment</label>
+    <label class="field-label" style="margin: 16px 0 8px;">Comment</label>
     <textarea name="comment" placeholder="What happened?" required></textarea>
     <button class="btn brass" type="submit" style="margin-top: 16px;">Add note</button>
   </form>
 </div>
+{% endif %}
 
 {% if grouped | length == 0 %}
 <div class="plaque empty-state"><p>No notes yet. Add your first one above.</p></div>
@@ -46,19 +46,23 @@
     <div class="note-entry">
       <div class="note-date">{{ n.note_date }}</div>
       <div class="note-comment">{{ n.comment }}</div>
+      {% if is_admin %}
       <a href="{{ url_for('edit_note', note_id=n.id) }}" class="note-edit-btn" title="Edit note">&#9998;</a>
       <form method="post" action="{{ url_for('delete_note', note_id=n.id) }}" onsubmit="return confirm('Delete this note?');">
         <button class="note-delete-btn" type="submit" title="Delete note">&#10005;</button>
       </form>
+      {% endif %}
     </div>
     {% endfor %}
 
+    {% if is_admin %}
     <form method="post" action="{{ url_for('notes_page') }}" class="note-quick-add">
       <input type="hidden" name="tag" value="{{ tag }}">
       <input type="date" name="note_date" value="{{ today }}" required>
       <input type="text" name="comment" placeholder="Add another entry under {{ tag }}…" required>
       <button class="btn ghost" type="submit">Add</button>
     </form>
+    {% endif %}
   </div>
   {% endfor %}
 {% endif %}

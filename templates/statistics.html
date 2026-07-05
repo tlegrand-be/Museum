@@ -62,7 +62,7 @@ new Chart(document.getElementById('weekdayChart'), {
   type: 'bar',
   data: {
     labels: {{ weekday.labels | tojson }},
-    datasets: [{ data: {{ weekday.data | tojson }}, backgroundColor: '#B8863B', borderRadius: 3 }]
+    datasets: [{ data: {{ weekday.data | tojson }}, backgroundColor: themeColor('--brass'), borderRadius: 3 }]
   },
   options: {
     responsive: true, maintainAspectRatio: false,
@@ -97,7 +97,7 @@ new Chart(document.getElementById('leaderboardChart'), {
     labels: {{ leaderboard | map(attribute='name') | list | tojson }},
     datasets: [{
       data: {{ leaderboard | map(attribute='c') | list | tojson }},
-      backgroundColor: '#1F3A2E',
+      backgroundColor: themeColor('--ink-green'),
       borderRadius: 3,
     }]
   },
@@ -110,15 +110,16 @@ new Chart(document.getElementById('leaderboardChart'), {
 });
 
 // Shifts over time line chart
+const brassColor = themeColor('--brass');
 new Chart(document.getElementById('overTimeChart'), {
   type: 'line',
   data: {
     labels: {{ over_time | map(attribute='shift_date') | list | tojson }},
     datasets: [{
       data: {{ over_time | map(attribute='c') | list | tojson }},
-      borderColor: '#B8863B',
-      backgroundColor: 'rgba(184,134,59,0.15)',
-      fill: true, tension: 0.25, pointBackgroundColor: '#1F3A2E',
+      borderColor: brassColor,
+      backgroundColor: brassColor + '26',
+      fill: true, tension: 0.25, pointBackgroundColor: themeColor('--ink-green'),
     }]
   },
   options: {

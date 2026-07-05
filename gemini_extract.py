@@ -1,3 +1,4 @@
+import io
 import os
 import re
 import json
@@ -7,6 +8,7 @@ from pathlib import Path
 
 from google import genai
 from google.genai import types
+from PIL import Image
 
 import location_rules
 
@@ -68,15 +70,32 @@ PART B — Identify the grid. Read the MAIN GRID's title exactly as printed — 
 PART C — Extract shifts from the FIRST time-slot column only — the leftmost column
 whose header is a clock-time range, immediately after "pause/pauze". Ignore every
 other time-slot column to its right, even if it has names in it. For each row
-(location) in the main grid, in that one first column:
+(location) in the main grid, in that one first column, in a single glance at that
+one cell (do not defer color-reading to a later pass):
 
-1. SKIP any name whose cell background is orange/salmon-colored — orange marks a
-   break-time overlap placeholder, not a real assignment.
-2. Include names with any other background (plain/white, grey, yellow, blue, or green).
-3. If the cell is empty, blank, hatched, or says "no need"/"-", skip that row — do not invent a name.
-4. Strip out checkmark symbols (√, ✓) — they are not part of the name.
-5. Strip out any asterisks (*, **, ***) next to a name — return just the bare name.
-6. Read the location label from that row's left-most "bewakingspost" column, exactly as written.
+1. Include EVERY name in that column, in reading order top to bottom — every single
+   row, without exception, no matter how many rows the grid has. Do not stop early and
+   do not summarize or skip rows to save space — completeness across the WHOLE grid
+   matters more than anything else in this part.
+2. If the cell is empty, blank, hatched, or says "no need"/"-", skip that row — do not invent a name.
+3. Strip out checkmark symbols (√, ✓) — they are not part of the name.
+4. Strip out any asterisks (*, **, ***) next to a name — return just the bare name.
+5. Read the location label from that row's left-most "bewakingspost" column, exactly as written.
+6. Report that SAME cell's background fill as one of exactly these words:
+   "plain" (white/grey/no fill), "yellow", "blue", "green", "orange", or "other".
+   Read the actual fill of THIS cell, not the row's pause/pauze cell and not
+   neighboring rows. Orange means a warm salmon/peach/coral/tan fill — do not
+   report "orange" for a pale/light blue fill, they look different and must not
+   be confused. If you are unsure between two colors, prefer describing what you
+   literally see over what you expect a break-placeholder to look like.
+
+PART D — Report column_bbox: a single bounding box, as [ymin, xmin, ymax, xmax]
+in the 0-1000 normalized coordinate system (0,0 is the image's top-left corner,
+1000,1000 is its bottom-right corner), that tightly frames ONLY that same first
+time-slot column's cells across every row of the main grid — from just below
+its header down to the bottom of the last row, and from that column's left
+border to its right border. Do not include the "pause/pauze" column or the
+next time-slot column in this box.
 
 Return ONLY a single JSON object, nothing else. No markdown fences, no commentary.
 
@@ -87,10 +106,124 @@ Format exactly like this:
   "time_slot_columns": ["<column header 1>", "<column header 2>", ...],
   "extracted_time_slot": "<the exact header of the first time-slot column you extracted from>",
   "shifts": [
-    {"name": "<person's name>", "position": "<location/row label>"}
-  ]
+    {"name": "<person's name>", "position": "<location/row label>", "background": "plain|yellow|blue|green|orange|other"}
+  ],
+  "column_bbox": [<ymin>, <xmin>, <ymax>, <xmax>]
 }
 """
+
+
+def _build_color_check_prompt(ordered_labels):
+    numbered = "\n".join(f"{i + 1}. {label}" for i, label in enumerate(ordered_labels))
+    return f"""This image is a cropped, zoomed-in view of ONLY the first time-slot
+column from a museum staff roster — one cell per row, top to bottom, nothing
+else in it. It contains exactly {len(ordered_labels)} cells, top to bottom,
+corresponding in order to these entries already read from the full sheet:
+{numbered}
+
+For each entry, in this exact top-to-bottom order, report that cell's
+background fill as one of exactly these words: "plain" (white/grey/no fill),
+"yellow", "blue", "green", "orange", or "other". Orange means a warm
+salmon/peach/coral/tan fill — a pale or light blue fill must be reported as
+"blue", never "orange", they look different and must not be confused. Look at
+each cell's actual fill directly; do not guess from what you'd expect a
+break-placeholder to look like.
+
+Return ONLY a JSON array of exactly {len(ordered_labels)} strings, in the same
+order as the list above, nothing else. No markdown fences, no commentary.
+Example: ["plain", "orange", "blue"]
+"""
+
+
+def _crop_and_upscale_column(image_bytes, bbox_norm, pad_frac=0.01, max_dim=2400):
+    """Crop the given normalized [ymin, xmin, ymax, xmax] (0-1000 scale) region
+    out of the full-resolution image and upscale it, so a follow-up color-only
+    Gemini call gets a much closer, higher-resolution look at just that one
+    column instead of trying to judge color from a single full-page glance."""
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    width, height = img.size
+    ymin, xmin, ymax, xmax = bbox_norm
+
+    left = max(0, (xmin / 1000.0) * width - width * pad_frac)
+    right = min(width, (xmax / 1000.0) * width + width * pad_frac)
+    top = max(0, (ymin / 1000.0) * height - height * pad_frac)
+    bottom = min(height, (ymax / 1000.0) * height + height * pad_frac)
+
+    if right - left < 2 or bottom - top < 2:
+        raise ValueError(f"degenerate crop bbox {bbox_norm} on image {width}x{height}")
+
+    crop = img.crop((int(left), int(top), int(right), int(bottom)))
+
+    scale = min(4.0, max(1.0, max_dim / max(crop.width, crop.height)))
+    if scale > 1.0:
+        crop = crop.resize((int(crop.width * scale), int(crop.height * scale)), Image.LANCZOS)
+
+    buf = io.BytesIO()
+    crop.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _recheck_colors(client, image_bytes, column_bbox, rows, image_name):
+    """Ask Gemini a second, dedicated question about background colors on a
+    cropped-and-upscaled image of just the first time-slot column, since a
+    single full-page glance is unreliable at telling orange/blue/yellow apart.
+    Returns a list of background strings aligned with `rows`, or None if the
+    recheck couldn't be performed — callers should then fall back to each
+    row's own first-pass background guess."""
+    if not rows:
+        return None
+    if not (isinstance(column_bbox, list) and len(column_bbox) == 4):
+        logger.warning("COLOR_RECHECK_SKIPPED image=%s reason=no_bbox", image_name)
+        return None
+
+    try:
+        bbox = [float(v) for v in column_bbox]
+        crop_bytes = _crop_and_upscale_column(image_bytes, bbox)
+    except Exception as e:
+        logger.warning("COLOR_RECHECK_SKIPPED image=%s reason=crop_failed error=%s", image_name, e)
+        return None
+
+    labels = [f'{r["name"]} ({r["position_raw"] or "?"})' for r in rows]
+    prompt = _build_color_check_prompt(labels)
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[types.Part.from_bytes(data=crop_bytes, mime_type="image/png"), prompt],
+            config=types.GenerateContentConfig(max_output_tokens=2048),
+        )
+    except Exception as e:
+        logger.warning("COLOR_RECHECK_FAILED image=%s error=%s", image_name, e)
+        return None
+
+    raw_text = response.text or ""
+    logger.info("COLOR_RECHECK_RESPONSE image=%s raw_text=%r", image_name, raw_text)
+
+    text = raw_text.strip()
+    text = re.sub(r"^```(json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+
+    try:
+        colors = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            logger.warning("COLOR_RECHECK_PARSE_FAILED image=%s", image_name)
+            return None
+        try:
+            colors = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            logger.warning("COLOR_RECHECK_PARSE_FAILED image=%s", image_name)
+            return None
+
+    if not isinstance(colors, list) or len(colors) != len(rows):
+        logger.warning(
+            "COLOR_RECHECK_LENGTH_MISMATCH image=%s expected=%d got=%s",
+            image_name, len(rows), len(colors) if isinstance(colors, list) else type(colors).__name__,
+        )
+        return None
+
+    return [str(c).strip().lower() for c in colors]
 
 
 def _get_client():
@@ -169,10 +302,16 @@ def extract_roster(image_path):
             types.Part.from_bytes(data=image_bytes, mime_type=mime),
             _build_prompt(),
         ],
+        config=types.GenerateContentConfig(max_output_tokens=8192),
     )
 
     raw_text = response.text or ""
-    logger.info("RESPONSE image=%s raw_text=%r", image_name, raw_text)
+    finish_reason = None
+    if response.candidates:
+        finish_reason = response.candidates[0].finish_reason
+    logger.info(
+        "RESPONSE image=%s finish_reason=%s raw_text=%r", image_name, finish_reason, raw_text
+    )
 
     text = raw_text.strip()
     text = re.sub(r"^```(json)?", "", text.strip())
@@ -201,21 +340,46 @@ def extract_roster(image_path):
     else:
         time_slot_columns = []
 
-    cleaned = []
+    rows = []
     for item in raw_shifts:
         name = _strip_stars(str(item.get("name", "")))
-        position_raw = str(item.get("position", "")).strip()
-        position = location_rules.normalize_location_label(position_raw)
-        if name:
-            cleaned.append({"name": name, "position": position or "Unknown"})
+        if not name:
+            continue
+        rows.append({
+            "name": name,
+            "position_raw": str(item.get("position", "")).strip(),
+            "background": str(item.get("background", "")).strip().lower(),
+        })
+
+    # A single full-page glance is not reliable enough to trust for silently
+    # dropping people (it confuses orange/blue/yellow) — re-check colors on a
+    # cropped, upscaled image of just the first time-slot column.
+    column_bbox = data.get("column_bbox") if isinstance(data, dict) else None
+    refined = _recheck_colors(client, image_bytes, column_bbox, rows, image_name)
+    if refined is not None:
+        for row, bg in zip(rows, refined):
+            row["background"] = bg
+
+    cleaned = []
+    skipped_orange = 0
+    for row in rows:
+        if row["background"] == "orange":
+            skipped_orange += 1
+            continue
+        position = location_rules.normalize_location_label(row["position_raw"])
+        cleaned.append({
+            "name": row["name"],
+            "position": position or "Unknown",
+            "raw_position": row["position_raw"],
+        })
 
     entries = _dedupe_keep_first(cleaned)
 
     logger.info(
         "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s "
-        "extracted_time_slot=%s entry_count=%d",
+        "extracted_time_slot=%s entry_count=%d skipped_orange=%d color_recheck=%s",
         image_name, detected_date, grid_title, time_slot_columns,
-        extracted_time_slot, len(entries),
+        extracted_time_slot, len(entries), skipped_orange, refined is not None,
     )
 
     return {

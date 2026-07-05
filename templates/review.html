@@ -23,7 +23,11 @@
       <tr>
         <td><input type="checkbox" name="keep" value="{{ loop.index0 }}" checked></td>
         <td><input type="text" name="name" value="{{ e.name }}"></td>
-        <td><input type="text" name="position" value="{{ e.position }}"></td>
+        <td>
+          <input type="text" name="position" value="{{ e.position }}">
+          <input type="hidden" name="raw_position" value="{{ e.raw_position or e.position }}">
+          <input type="hidden" name="orig_position" value="{{ e.position }}">
+        </td>
       </tr>
       {% endfor %}
     </tbody>

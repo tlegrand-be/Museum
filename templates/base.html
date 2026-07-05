@@ -6,6 +6,13 @@
   <title>{% block title %}Roster Ledger{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script>
+    // Reads a theme CSS variable so charts follow whichever theme is active,
+    // instead of hardcoding one theme's palette into every chart.
+    function themeColor(varName) {
+      return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    }
+  </script>
 </head>
 <body>
   <div class="topbar">
@@ -24,7 +31,10 @@
       <a href="{{ url_for('statistics_page') }}" class="{{ 'active' if request.endpoint == 'statistics_page' }}">More statistics</a>
       <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
       <div class="app-sidebar-divider"></div>
+      {% if is_admin %}
       <a href="{{ url_for('upload') }}" class="{{ 'active' if request.endpoint in ['upload', 'review'] }}">+ Upload roster</a>
+      {% endif %}
+      <a href="{{ url_for('uploads_page') }}" class="{{ 'active' if request.endpoint in ['uploads_page'] }}">Upload history</a>
       <a href="{{ url_for('export') }}">Export .xlsx</a>
       <div class="app-sidebar-divider"></div>
       <a href="{{ url_for('lock') }}">Lock</a>

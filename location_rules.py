@@ -1,61 +1,87 @@
 import re
 
+# Rules that only fire on an exact (whitespace-insensitive) match of the whole
+# label. Reserved for short/ambiguous OCR fragments (e.g. "OK", "61", "1A")
+# that would produce false positives if matched as a substring anywhere in a
+# label the way RENAME_RULES below does.
+EXACT_RULES = [
+    ("ok", "CT Ancien"),          # OCR sometimes drops the "CT/TC AA/" prefix
+    ("1a", "Argenteau"),
+    ("4/5", "Agora -2"),
+    ("8-9", "Balat 7-8-9"),
+    ("61", "Balat Patio 2"),
+    ("mmm", "Magritte SAS"),      # bare "MMM" with no further qualifier
+]
+
 # Ordered rename rules: (substring to look for in the raw OCR'd label, canonical replacement).
 # Checked in order, case-insensitive. First match wins and REPLACES the whole label.
 RENAME_RULES = [
     # --- FORUM wing ---
     ("vestiaire", "Vestiaire"),
     ("regentschapstraat", "Entrée principale"),
-    ("onthaal groepen", "Acceuil groupes"),
-    ("accueil groupes", "Acceuil groupes"),
-    ("acceuil groupes", "Acceuil groupes"),
+    ("straat 3", "Entrée principale"),      # tolerate OCR dropping "Regentschap"
+    ("onthaal groepen", "Accueil groupes"),
+    ("accueil groupes", "Accueil groupes"),
+    ("acceuil groupes", "Accueil groupes"),
+    ("groepen", "Accueil groupes"),          # tolerate OCR dropping "Onthaal"
     ("ct/tc aa", "CT Ancien"),
     ("ct tc aa", "CT Ancien"),
     ("tc aa", "CT Ancien"),          # tolerate OCR dropping the leading "CT/"
+    ("ct aa", "CT Ancien"),          # tolerate OCR dropping the trailing "/TC"
     ("ct/tc moderne", "CT Moderne"),
     ("ct tc moderne", "CT Moderne"),
     ("tc moderne", "CT Moderne"),    # tolerate OCR dropping the leading "CT/"
+    ("ct moderne", "CT Moderne"),    # tolerate OCR dropping the trailing "/TC"
+    ("patio 0", "CT Moderne"),
+    ("greshman", "Gresham"),         # common OCR misread of "Gresham"
     ("gresham", "Gresham"),
     ("argenteau", "Argenteau"),
     ("agora", "Agora -2"),
+    ("foyer 0", "Forum"),
     ("forum", "Forum"),
 
     # --- BALAT wing --- (check specific numbered rows before generic "ingang balat")
     ("balat 1-2", "Balat 1-2"),
     ("balat 3-4", "Balat 3-4"),
+    ("salle 51", "Balat 3-4"),
+    ("zaal 51", "Balat 3-4"),
     ("rubens", "Salle 52"),
     ("salle 52", "Salle 52"),
     ("zaal 52", "Salle 52"),
-    ("balat 7-8-9", "Salle 55"),
-    ("salle 55", "Salle 55"),
-    ("zaal 55", "Salle 55"),
-    ("patio 2", "Patio 2"),
-    ("salle 61", "Patio 2"),
-    ("zaal 61", "Patio 2"),
+    ("salle 54", "Balat 51-53-54"),
+    ("zaal 54", "Balat 51-53-54"),
+    ("balat 7-8-9", "Balat 7-8-9"),
+    ("salle 55", "Balat 7-8-9"),
+    ("zaal 55", "Balat 7-8-9"),
+    ("patio 2", "Balat Patio 2"),
+    ("salle 61", "Balat Patio 2"),
+    ("zaal 61", "Balat Patio 2"),
     ("paccar", "Paccar"),
+    ("ingaang balat", "Entrée Balat"),   # tolerate OCR misread of "ingang"
     ("ingang balat", "Entrée Balat"),
     ("entrée balat", "Entrée Balat"),
     ("entree balat", "Entrée Balat"),
 
     # --- MAGRITTE wing --- (check specific MMM variants before generic "coordinateur"/"mobile")
-    ("coordinateur", "Coordinateur Magritte"),
-    ("coördinateur", "Coordinateur Magritte"),
-    ("mobile", "Mobile"),
-    ("mobiel", "Mobile"),
-    ("sas", "SAS"),
-    ("contrôle", "0 MMM"),
-    ("controle", "0 MMM"),
-    ("0 mmm", "0 MMM"),
-    ("ct/tc mmm", "CT MMM"),
-    ("ct tc mmm", "CT MMM"),
-    ("tc mmm", "CT MMM"),            # tolerate OCR dropping the leading "CT/"
-    ("lift mmm", "Lift MMM"),
-    ("mmm +1", "MMM +1"),
-    ("mmm+1", "MMM +1"),
-    ("mmm +2", "MMM +2"),
-    ("mmm+2", "MMM +2"),
-    ("mmm +3", "MMM +3"),
-    ("mmm+3", "MMM +3"),
+    ("coordinateur", "Magritte Coordinateur"),
+    ("coördinateur", "Magritte Coordinateur"),
+    ("mobile", "Magritte Mobile"),
+    ("mobiel", "Magritte Mobile"),
+    ("sas", "Magritte SAS"),
+    ("contrôle", "Magritte SAS"),
+    ("controle", "Magritte SAS"),
+    ("0 mmm", "Magritte SAS"),
+    ("ct/tc mmm", "Magritte CT"),
+    ("ct tc mmm", "Magritte CT"),
+    ("tc mmm", "Magritte CT"),            # tolerate OCR dropping the leading "CT/"
+    ("ct mmm", "Magritte CT"),            # tolerate OCR dropping the trailing "/TC"
+    ("lift mmm", "Magritte Lift"),
+    ("mmm +1", "Magritte +1"),
+    ("mmm+1", "Magritte +1"),
+    ("mmm +2", "Magritte +2"),
+    ("mmm+2", "Magritte +2"),
+    ("mmm +3", "Magritte +3"),
+    ("mmm+3", "Magritte +3"),
 ]
 
 # The order these canonical locations appear on the physical roster sheet,
@@ -64,7 +90,7 @@ RENAME_RULES = [
 # or unrecognized location) is sorted alphabetically after all of these.
 ROSTER_ORDER = [
     "Entrée principale",
-    "Acceuil groupes",
+    "Accueil groupes",
     "Forum",
     "CT Moderne",
     "CT Ancien",
@@ -76,18 +102,18 @@ ROSTER_ORDER = [
     "Balat 1-2",
     "Balat 3-4",
     "Salle 52",
-    "Salle 55",
-    "Patio 2",
+    "Balat 51-53-54",
+    "Balat 7-8-9",
+    "Balat Patio 2",
     "Agora -2",
-    "Coordinateur Magritte",
-    "Mobile",
-    "SAS",
-    "0 MMM",
-    "CT MMM",
-    "Lift MMM",
-    "MMM +1",
-    "MMM +2",
-    "MMM +3",
+    "Magritte Coordinateur",
+    "Magritte Mobile",
+    "Magritte SAS",
+    "Magritte CT",
+    "Magritte Lift",
+    "Magritte +1",
+    "Magritte +2",
+    "Magritte +3",
     "Musicorum",
 ]
 
@@ -111,6 +137,11 @@ def normalize_location_label(raw):
         return raw
     label = raw.strip()
     lower = label.lower()
+    compact = re.sub(r"\s+", "", lower)
+
+    for needle, replacement in EXACT_RULES:
+        if compact == needle:
+            return replacement
 
     for needle, replacement in RENAME_RULES:
         if needle in lower:
@@ -130,21 +161,21 @@ def classify_group(location_name):
     n = location_name.lower()
 
     magritte_names = {
-        "coordinateur magritte", "mobile", "sas", "0 mmm", "ct mmm",
-        "lift mmm", "mmm +1", "mmm +2", "mmm +3",
+        "magritte coordinateur", "magritte mobile", "magritte sas", "magritte ct",
+        "magritte lift", "magritte +1", "magritte +2", "magritte +3",
     }
-    if n in magritte_names or "mmm" in n or "coordinateur" in n or "mobile" in n:
+    if n in magritte_names or "magritte" in n or "coordinateur" in n or "mobile" in n:
         return "MAGRITTE"
 
     balat_names = {
         "entrée balat", "balat 1-2", "balat 3-4", "salle 52",
-        "salle 55", "patio 2", "paccar",
+        "balat 51-53-54", "balat 7-8-9", "balat patio 2", "paccar",
     }
     if n in balat_names or "balat" in n or "salle" in n or "patio" in n or "paccar" in n:
         return "BALAT"
 
     forum_keywords = [
-        "entrée principale", "acceuil groupes", "forum", "ct moderne", "ct ancien",
+        "entrée principale", "accueil groupes", "forum", "ct moderne", "ct ancien",
         "vestiaire", "gresham", "argenteau", "agora",
     ]
     if any(k in n for k in forum_keywords):

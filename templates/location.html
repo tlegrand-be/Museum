@@ -53,7 +53,7 @@ new Chart(document.getElementById('rankingChart'), {
     labels: {{ detail.ranking | map(attribute='name') | list | tojson }},
     datasets: [{
       data: {{ detail.ranking | map(attribute='c') | list | tojson }},
-      backgroundColor: '#B8863B',
+      backgroundColor: themeColor('--brass'),
       borderRadius: 3,
     }]
   },
