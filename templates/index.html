@@ -12,22 +12,76 @@
 </div>
 {% else %}
 
+<div class="overview-top">
+  <div class="plaque quicknote-bubble">
+    <div class="quicknote-header"><span class="dot"></span>Team notes</div>
+
+    <div class="quicknote-list">
+      {% for n in quick_notes %}
+      <div class="quicknote-entry">
+        <div class="quicknote-view" id="qn-view-{{ n.id }}">
+          <p class="quicknote-message">{{ n.message }}</p>
+          <div class="quicknote-meta">
+            <span>{{ n.posted_at }}</span>
+            {% if is_admin %}
+            <button type="button" class="quicknote-icon-btn" onclick="toggleQuickNoteEdit({{ n.id }})" title="Edit note">&#9998;</button>
+            <form method="post" action="{{ url_for('delete_quick_note', note_id=n.id) }}" onsubmit="return confirm('Delete this note?');">
+              <button type="submit" class="quicknote-icon-btn" title="Delete note">&times;</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+        {% if is_admin %}
+        <form method="post" action="{{ url_for('edit_quick_note', note_id=n.id) }}" class="quicknote-edit-form" id="qn-edit-{{ n.id }}">
+          <textarea name="message" maxlength="280" required>{{ n.message }}</textarea>
+          <div class="quicknote-edit-actions">
+            <button class="btn brass" type="submit">Save</button>
+            <button class="btn ghost" type="button" onclick="toggleQuickNoteEdit({{ n.id }})">Cancel</button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="quicknote-empty">No notes yet — leave one for the team below.</p>
+      {% endfor %}
+    </div>
+
+    <form method="post" action="{{ url_for('add_quick_note') }}" class="quicknote-add-form">
+      <textarea name="message" maxlength="280" placeholder="Leave a note for the team…" required></textarea>
+      <button class="btn brass" type="submit">Post</button>
+    </form>
+  </div>
+
+  <div class="overview-stats-col">
+    {% for w in widgets %}
+      {% if w.enabled and w.id == 'days_covered' %}
+      <div class="days-plaque plaque">
+        <div class="num">{{ stats.total_days }}</div>
+        <div class="label">Days covered</div>
+      </div>
+      {% endif %}
+      {% if w.enabled and w.id == 'last_update' %}
+      <div class="days-plaque plaque">
+        <div class="num" style="font-size: 20px;">{{ last_update or "No uploads yet" }}</div>
+        <div class="label">Last update</div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+function toggleQuickNoteEdit(id) {
+  const view = document.getElementById('qn-view-' + id);
+  const form = document.getElementById('qn-edit-' + id);
+  const showingForm = form.style.display === 'flex';
+  form.style.display = showingForm ? 'none' : 'flex';
+  view.style.display = showingForm ? 'flex' : 'none';
+}
+</script>
+
 {% for w in widgets %}
   {% if w.enabled %}
-
-    {% if w.id == 'days_covered' %}
-    <div class="days-plaque plaque" style="display:inline-block; margin-right:16px; margin-bottom:36px;">
-      <div class="num">{{ stats.total_days }}</div>
-      <div class="label">Days covered</div>
-    </div>
-    {% endif %}
-
-    {% if w.id == 'last_update' %}
-    <div class="days-plaque plaque" style="display:inline-block; margin-bottom:36px;">
-      <div class="num" style="font-size: 20px;">{{ last_update or "No uploads yet" }}</div>
-      <div class="label">Last update</div>
-    </div>
-    {% endif %}
 
     {% if w.id == 'wing_chart' %}
     <div class="chart-wrap">

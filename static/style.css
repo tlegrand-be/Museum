@@ -733,15 +733,132 @@ form.upload-form input[type="text"] {
   .note-quick-add { flex-direction: column; align-items: stretch; }
 }
 
-/* ============ Statistics page ============ */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+/* ============ Overview top row: quick-note bubble + stat plaques ============ */
+.overview-top {
+  display: flex;
+  align-items: flex-start;
   gap: 20px;
+  margin-bottom: 36px;
+  flex-wrap: wrap;
 }
-.stats-grid .chart-wrap { margin-bottom: 0; }
 
-/* ============ Overview stat plaques ============ */
+.quicknote-bubble {
+  flex: 1 1 380px;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.quicknote-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--heading-font);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--heading-color);
+}
+.quicknote-header .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brass);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 18%, transparent);
+}
+
+.quicknote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.quicknote-empty {
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+.quicknote-entry {
+  background: var(--parchment-dim);
+  border-radius: calc(var(--radius) + 4px);
+  padding: 10px 14px;
+}
+.quicknote-view { display: flex; flex-direction: column; }
+.quicknote-message {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--charcoal);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.quicknote-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  color: var(--charcoal);
+  opacity: 0.55;
+}
+.quicknote-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-size: 12px;
+  color: var(--charcoal);
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+.quicknote-icon-btn:hover { opacity: 1; color: var(--rust); }
+
+.quicknote-edit-form {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.quicknote-edit-actions { display: flex; gap: 8px; }
+.quicknote-edit-actions .btn { padding: 6px 14px; font-size: 11px; }
+
+.quicknote-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quicknote-add-form .btn { align-self: flex-end; padding: 8px 18px; font-size: 12px; }
+
+.quicknote-bubble textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: var(--body-font);
+  font-size: 13px;
+  resize: vertical;
+  min-height: 48px;
+  background: var(--panel-bg);
+  color: var(--charcoal);
+}
+
+.overview-stats-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-left: auto;
+}
+
+@media (max-width: 760px) {
+  .overview-top { flex-direction: column; }
+  .quicknote-bubble { max-width: none; }
+  .overview-stats-col { margin-left: 0; flex-direction: row; flex-wrap: wrap; }
+}
+
 .days-plaque {
   padding: 20px 32px;
 }

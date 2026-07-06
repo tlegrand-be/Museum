@@ -67,8 +67,11 @@ def effective_group_colors():
 
 @app.before_request
 def ensure_db():
-    if not (BASE_DIR / "instance" / "museum.db").exists():
-        database.init_db()
+    # Always runs (not just on first-ever request) since init_db() is all
+    # CREATE TABLE IF NOT EXISTS / guarded ALTER — this is what makes a new
+    # table added in a later update actually appear on an already-deployed
+    # database after a git pull + reload, with no manual migration step.
+    database.init_db()
 
 
 @app.before_request
@@ -133,10 +136,35 @@ def index():
     group_chart = database.worker_group_breakdown()
     last_update = database.last_update()
     widgets = get_cookie_json("overview_widgets", settings_defs.DEFAULT_OVERVIEW_WIDGETS)
+    quick_notes = database.list_quick_notes()
     return render_template(
         "index.html", stats=stats, group_chart=group_chart,
-        last_update=last_update, widgets=widgets,
+        last_update=last_update, widgets=widgets, quick_notes=quick_notes,
     )
+
+
+@app.route("/notes/quick", methods=["POST"])
+def add_quick_note():
+    message = (request.form.get("message") or "").strip()
+    if message:
+        database.add_quick_note(message)
+    return redirect(url_for("index"))
+
+
+@app.route("/notes/quick/<int:note_id>/edit", methods=["POST"])
+@admin_required
+def edit_quick_note(note_id):
+    message = (request.form.get("message") or "").strip()
+    if message:
+        database.update_quick_note(note_id, message)
+    return redirect(url_for("index"))
+
+
+@app.route("/notes/quick/<int:note_id>/delete", methods=["POST"])
+@admin_required
+def delete_quick_note(note_id):
+    database.delete_quick_note(note_id)
+    return redirect(url_for("index"))
 
 
 # ---------------- Upload / Review ----------------
@@ -381,20 +409,6 @@ def delete_note(note_id):
     database.delete_note(note_id)
     flash("Note deleted.", "success")
     return redirect(url_for("notes_page"))
-
-
-# ---------------- More statistics ----------------
-
-@app.route("/statistics")
-def statistics_page():
-    return render_template(
-        "statistics.html",
-        group_stats=database.shifts_by_group(),
-        top_locations=database.top_locations(),
-        leaderboard=database.worker_leaderboard(),
-        over_time=database.shifts_over_time(),
-        weekday=database.shifts_by_weekday(),
-    )
 
 
 # ---------------- Settings ----------------

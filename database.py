@@ -57,6 +57,12 @@ def init_db():
             raw_label TEXT PRIMARY KEY,
             canonical TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS quick_notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     # Migration safety net: if an older database already has a `locations`
@@ -452,6 +458,64 @@ def all_tags():
     return list(seen.values())
 
 
+def add_quick_note(message):
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO quick_notes (message) VALUES (?)",
+        (message.strip(),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_quick_notes():
+    """Notes from the last 7 days, newest first. Also purges anything older
+    while it's here — quick notes are meant to age out on their own, not
+    build up as a permanent record like the tagged Notes page does."""
+    from datetime import datetime
+
+    conn = get_db()
+    conn.execute("DELETE FROM quick_notes WHERE created_at < datetime('now', '-7 days')")
+    conn.commit()
+    rows = conn.execute("SELECT * FROM quick_notes ORDER BY created_at DESC").fetchall()
+    conn.close()
+
+    notes = []
+    for r in rows:
+        note = dict(r)
+        try:
+            dt = datetime.strptime(note["created_at"], "%Y-%m-%d %H:%M:%S")
+            note["posted_at"] = dt.strftime("%b %d, %H:%M")
+        except (ValueError, TypeError):
+            note["posted_at"] = note["created_at"]
+        notes.append(note)
+    return notes
+
+
+def get_quick_note(note_id):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM quick_notes WHERE id = ?", (note_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_quick_note(note_id, message):
+    conn = get_db()
+    conn.execute(
+        "UPDATE quick_notes SET message = ? WHERE id = ?",
+        (message.strip(), note_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_quick_note(note_id):
+    conn = get_db()
+    conn.execute("DELETE FROM quick_notes WHERE id = ?", (note_id,))
+    conn.commit()
+    conn.close()
+
+
 def notes_grouped_by_tag():
     """Group notes by category (case-insensitively, so 'Elevator' and 'elevator'
     merge into one group), each group's entries ordered by the note's own date
@@ -473,69 +537,3 @@ def notes_grouped_by_tag():
     for key in sorted(grouped.keys(), key=lambda k: display_name[k].lower()):
         result[display_name[key]] = grouped[key]
     return result
-
-
-# ---------------- Extended statistics ----------------
-
-def shifts_by_group():
-    import location_rules
-    conn = get_db()
-    rows = conn.execute(
-        """SELECT l.group_name AS grp, COUNT(*) c FROM shifts s
-           JOIN locations l ON l.id = s.location_id
-           GROUP BY l.group_name"""
-    ).fetchall()
-    conn.close()
-    counts = {g: 0 for g in location_rules.GROUP_ORDER}
-    for r in rows:
-        counts[r["grp"]] = r["c"]
-    return counts
-
-
-def top_locations(limit=12):
-    conn = get_db()
-    rows = conn.execute(
-        """SELECT l.name, l.group_name, COUNT(*) c FROM shifts s
-           JOIN locations l ON l.id = s.location_id
-           GROUP BY l.id ORDER BY c DESC LIMIT ?""",
-        (limit,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def worker_leaderboard(limit=20):
-    conn = get_db()
-    rows = conn.execute(
-        """SELECT w.id, w.name, COUNT(*) c FROM shifts s
-           JOIN workers w ON w.id = s.worker_id
-           GROUP BY w.id ORDER BY c DESC LIMIT ?""",
-        (limit,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def shifts_over_time():
-    conn = get_db()
-    rows = conn.execute(
-        """SELECT shift_date, COUNT(*) c FROM shifts
-           GROUP BY shift_date ORDER BY shift_date"""
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def shifts_by_weekday():
-    conn = get_db()
-    rows = conn.execute("SELECT shift_date FROM shifts").fetchall()
-    conn.close()
-    from datetime import datetime
-    counts = [0] * 7  # Monday=0 ... Sunday=6
-    for r in rows:
-        try:
-            d = datetime.strptime(r["shift_date"], "%Y-%m-%d")
-            counts[d.weekday()] += 1
-        except (ValueError, TypeError):
-            continue
-    return {"labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "data": counts}
