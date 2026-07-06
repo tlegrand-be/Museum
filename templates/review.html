@@ -16,9 +16,10 @@
         <th style="width: 40px;">Keep</th>
         <th>Name</th>
         <th>Position / Location</th>
+        <th style="width: 40px;"></th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="reviewRows">
       {% for e in data.entries %}
       <tr>
         <td><input type="checkbox" name="keep" value="{{ loop.index0 }}" checked></td>
@@ -28,11 +29,47 @@
           <input type="hidden" name="raw_position" value="{{ e.raw_position or e.position }}">
           <input type="hidden" name="orig_position" value="{{ e.position }}">
         </td>
+        <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;">&times;</button></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 
+  <button class="btn ghost" type="button" id="addRow" style="margin-top: 12px;">+ Add colleague</button>
   <button class="btn brass" type="submit" style="margin-top: 24px;">Save to ledger</button>
 </form>
+
+<script>
+const reviewRows = document.getElementById('reviewRows');
+
+function rowTemplate(index) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="checkbox" name="keep" value="${index}" checked></td>
+    <td><input type="text" name="name" value=""></td>
+    <td>
+      <input type="text" name="position" value="">
+      <input type="hidden" name="raw_position" value="">
+      <input type="hidden" name="orig_position" value="">
+    </td>
+    <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;">&times;</button></td>
+  `;
+  return tr;
+}
+
+document.getElementById('addRow').addEventListener('click', () => {
+  reviewRows.appendChild(rowTemplate(reviewRows.children.length));
+  reviewRows.lastElementChild.querySelector('input[name="name"]').focus();
+});
+
+reviewRows.addEventListener('click', e => {
+  if (!e.target.classList.contains('remove-row')) return;
+  e.target.closest('tr').remove();
+  // Re-number remaining "keep" checkbox values so they stay aligned with
+  // the name/position arrays the server zips them against positionally.
+  [...reviewRows.querySelectorAll('tr')].forEach((row, i) => {
+    row.querySelector('input[name="keep"]').value = i;
+  });
+});
+</script>
 {% endblock %}
