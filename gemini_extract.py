@@ -56,7 +56,7 @@ The sheet has THREE distinct areas — pay close attention to only using the rig
      clock-time range such as "10:00-11:45" or "11:00-12:15". The exact boundaries
      differ between weekday and weekend sheets. Each cell holds a person's name,
      sometimes with a checkmark or asterisks, shaded with a background color
-     (plain/grey, yellow, blue, green, or orange).
+     (plain/grey, yellow, blue, green, orange, or red).
 
 Your job has three parts:
 
@@ -82,12 +82,14 @@ one cell (do not defer color-reading to a later pass):
 4. Strip out any asterisks (*, **, ***) next to a name — return just the bare name.
 5. Read the location label from that row's left-most "bewakingspost" column, exactly as written.
 6. Report that SAME cell's background fill as one of exactly these words:
-   "plain" (white/grey/no fill), "yellow", "blue", "green", "orange", or "other".
+   "plain" (white/grey/no fill), "yellow", "blue", "green", "orange", "red", or "other".
    Read the actual fill of THIS cell, not the row's pause/pauze cell and not
    neighboring rows. Orange means a warm salmon/peach/coral/tan fill — do not
    report "orange" for a pale/light blue fill, they look different and must not
-   be confused. If you are unsure between two colors, prefer describing what you
-   literally see over what you expect a break-placeholder to look like.
+   be confused. Red means a distinct bright/deep red fill — do not confuse it
+   with orange; they are different categories. If you are unsure between two
+   colors, prefer describing what you literally see over what you expect a
+   break-placeholder to look like.
 
 PART D — Report column_bbox: a single bounding box, as [ymin, xmin, ymax, xmax]
 in the 0-1000 normalized coordinate system (0,0 is the image's top-left corner,
@@ -106,7 +108,7 @@ Format exactly like this:
   "time_slot_columns": ["<column header 1>", "<column header 2>", ...],
   "extracted_time_slot": "<the exact header of the first time-slot column you extracted from>",
   "shifts": [
-    {"name": "<person's name>", "position": "<location/row label>", "background": "plain|yellow|blue|green|orange|other"}
+    {"name": "<person's name>", "position": "<location/row label>", "background": "plain|yellow|blue|green|orange|red|other"}
   ],
   "column_bbox": [<ymin>, <xmin>, <ymax>, <xmax>]
 }
@@ -123,15 +125,16 @@ corresponding in order to these entries already read from the full sheet:
 
 For each entry, in this exact top-to-bottom order, report that cell's
 background fill as one of exactly these words: "plain" (white/grey/no fill),
-"yellow", "blue", "green", "orange", or "other". Orange means a warm
+"yellow", "blue", "green", "orange", "red", or "other". Orange means a warm
 salmon/peach/coral/tan fill — a pale or light blue fill must be reported as
-"blue", never "orange", they look different and must not be confused. Look at
+"blue", never "orange", they look different and must not be confused. Red
+means a distinct bright/deep red fill, different from orange. Look at
 each cell's actual fill directly; do not guess from what you'd expect a
 break-placeholder to look like.
 
 Return ONLY a JSON array of exactly {len(ordered_labels)} strings, in the same
 order as the list above, nothing else. No markdown fences, no commentary.
-Example: ["plain", "orange", "blue"]
+Example: ["plain", "orange", "red"]
 """
 
 
@@ -361,10 +364,10 @@ def extract_roster(image_path):
             row["background"] = bg
 
     cleaned = []
-    skipped_orange = 0
+    skipped_marked = 0
     for row in rows:
-        if row["background"] == "orange":
-            skipped_orange += 1
+        if row["background"] in ("orange", "red"):
+            skipped_marked += 1
             continue
         position = location_rules.normalize_location_label(row["position_raw"])
         cleaned.append({
@@ -377,9 +380,9 @@ def extract_roster(image_path):
 
     logger.info(
         "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s "
-        "extracted_time_slot=%s entry_count=%d skipped_orange=%d color_recheck=%s",
+        "extracted_time_slot=%s entry_count=%d skipped_marked=%d color_recheck=%s",
         image_name, detected_date, grid_title, time_slot_columns,
-        extracted_time_slot, len(entries), skipped_orange, refined is not None,
+        extracted_time_slot, len(entries), skipped_marked, refined is not None,
     )
 
     return {
