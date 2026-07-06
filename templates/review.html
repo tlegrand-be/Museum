@@ -25,7 +25,14 @@
         <td><input type="checkbox" name="keep" value="{{ loop.index0 }}" checked></td>
         <td><input type="text" name="name" value="{{ e.name }}"></td>
         <td>
-          <input type="text" name="position" value="{{ e.position }}">
+          <select name="position">
+            {% if e.position not in locations %}
+            <option value="{{ e.position }}" selected>{{ e.position }} (unrecognized)</option>
+            {% endif %}
+            {% for loc in locations %}
+            <option value="{{ loc }}" {% if loc == e.position %}selected{% endif %}>{{ loc }}</option>
+            {% endfor %}
+          </select>
           <input type="hidden" name="raw_position" value="{{ e.raw_position or e.position }}">
           <input type="hidden" name="orig_position" value="{{ e.position }}">
         </td>
@@ -41,14 +48,18 @@
 
 <script>
 const reviewRows = document.getElementById('reviewRows');
+const LOCATIONS = {{ locations | tojson }};
 
 function rowTemplate(index) {
   const tr = document.createElement('tr');
+  const options = ['<option value="" selected disabled>-- choose location --</option>']
+    .concat(LOCATIONS.map(loc => `<option value="${loc}">${loc}</option>`))
+    .join('');
   tr.innerHTML = `
     <td><input type="checkbox" name="keep" value="${index}" checked></td>
     <td><input type="text" name="name" value=""></td>
     <td>
-      <input type="text" name="position" value="">
+      <select name="position">${options}</select>
       <input type="hidden" name="raw_position" value="">
       <input type="hidden" name="orig_position" value="">
     </td>

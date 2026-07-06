@@ -26,10 +26,17 @@
     {% for u in uploads %}
     <tr>
       <td>
+        {% if u.photo_available %}
         <a href="{{ url_for('upload_image', filename=u.source_image) }}" target="_blank">
           <img src="{{ url_for('upload_image', filename=u.source_image) }}" alt="Roster photo"
                style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:block;">
         </a>
+        {% else %}
+        <div title="Photo removed after saving to keep server storage small"
+             style="width:70px; height:70px; display:flex; align-items:center; justify-content:center; border-radius:var(--radius); border:1px solid var(--line); opacity:0.5; font-size:11px; text-align:center;">
+          removed
+        </div>
+        {% endif %}
       </td>
       <td>{{ u.shift_date }}</td>
       <td>{{ u.shift_count }} shift{{ 's' if u.shift_count != 1 else '' }}</td>

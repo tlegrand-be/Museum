@@ -379,13 +379,15 @@ form.upload-form input[type="text"] {
   font-size: 14px;
 }
 
-.review-table input[type="text"] {
+.review-table input[type="text"],
+.review-table select {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   font-family: 'Inter', sans-serif;
   font-size: 14px;
+  background: #fff;
 }
 
 /* Shared form field styling — any label/input pair outside .upload-form */

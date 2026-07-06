@@ -236,18 +236,28 @@ def review(token):
         saved, skipped = database.save_shifts(entries, shift_date, data.get("source_image"))
         pending_path.unlink(missing_ok=True)
 
+        # The photo's only job was getting data into the ledger — once that's
+        # done, delete it so PythonAnywhere's limited disk quota doesn't fill
+        # up with roster photos that are never looked at again.
+        source_image = data.get("source_image")
+        if source_image:
+            (UPLOAD_DIR / source_image).unlink(missing_ok=True)
+
         msg = f"Saved {saved} shift{'s' if saved != 1 else ''}."
         if skipped:
             msg += f" ({skipped} already existed for that date and were skipped.)"
         flash(msg, "success")
         return redirect(url_for("index"))
 
-    return render_template("review.html", token=token, data=data)
+    locations = [loc for loc in location_rules.ROSTER_ORDER if loc != "Musicorum"]
+    return render_template("review.html", token=token, data=data, locations=locations)
 
 
 @app.route("/uploads")
 def uploads_page():
     uploads = database.list_uploads()
+    for u in uploads:
+        u["photo_available"] = bool(u.get("source_image")) and (UPLOAD_DIR / u["source_image"]).is_file()
     return render_template("uploads.html", uploads=uploads)
 
 
