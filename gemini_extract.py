@@ -297,38 +297,53 @@ def extract_roster(image_path):
     ext = os.path.splitext(image_path)[1].lower()
     mime = "image/png" if ext == ".png" else "image/jpeg"
 
-    logger.info("REQUEST image=%s", image_name)
+    data = None
+    attempts = 2
+    for attempt in range(1, attempts + 1):
+        logger.info("REQUEST image=%s attempt=%d", image_name, attempt)
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime),
-            _build_prompt(),
-        ],
-        config=types.GenerateContentConfig(max_output_tokens=8192),
-    )
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=mime),
+                _build_prompt(),
+            ],
+            config=types.GenerateContentConfig(max_output_tokens=8192),
+        )
 
-    raw_text = response.text or ""
-    finish_reason = None
-    if response.candidates:
-        finish_reason = response.candidates[0].finish_reason
-    logger.info(
-        "RESPONSE image=%s finish_reason=%s raw_text=%r", image_name, finish_reason, raw_text
-    )
+        raw_text = response.text or ""
+        finish_reason = None
+        if response.candidates:
+            finish_reason = response.candidates[0].finish_reason
+        logger.info(
+            "RESPONSE image=%s attempt=%d finish_reason=%s raw_text=%r",
+            image_name, attempt, finish_reason, raw_text,
+        )
 
-    text = raw_text.strip()
-    text = re.sub(r"^```(json)?", "", text.strip())
-    text = re.sub(r"```$", "", text.strip()).strip()
+        text = raw_text.strip()
+        text = re.sub(r"^```(json)?", "", text.strip())
+        text = re.sub(r"```$", "", text.strip()).strip()
 
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-        else:
-            logger.warning("PARSE_FAILED image=%s could not extract JSON from response", image_name)
-            raise ValueError(f"Could not parse Gemini response as JSON:\n{text}")
+        try:
+            data = json.loads(text)
+            break
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            try:
+                if not match:
+                    raise json.JSONDecodeError("no JSON object found", text, 0)
+                data = json.loads(match.group(0))
+                break
+            except json.JSONDecodeError:
+                logger.warning(
+                    "PARSE_FAILED image=%s attempt=%d finish_reason=%s could not parse JSON from response",
+                    image_name, attempt, finish_reason,
+                )
+                if attempt == attempts:
+                    raise ValueError(
+                        "Gemini's response wasn't valid data. Please try uploading again."
+                    ) from None
+                continue
 
     raw_shifts = data.get("shifts", []) if isinstance(data, dict) else []
     detected_date = _parse_iso_date(data.get("date") if isinstance(data, dict) else None)
