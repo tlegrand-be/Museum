@@ -1,4 +1,5 @@
 import re
+import difflib
 
 # Rules that only fire on an exact (whitespace-insensitive) match of the whole
 # label. Reserved for short/ambiguous OCR fragments (e.g. "OK", "61", "1A")
@@ -130,6 +131,32 @@ def roster_sort_key(name):
 _ZAAL_PATTERN = re.compile(r"(salle|zaal)\s*/\s*(salle|zaal)", re.IGNORECASE)
 _ZAAL_SUFFIX_PATTERN = re.compile(r"/\s*zaal", re.IGNORECASE)
 
+# Several canonical names are near-siblings of each other by design (Balat
+# 1-2 / 3-4, Magritte +1 / +2 / +3, ...), so a close spelling match alone
+# isn't enough to auto-correct on -- the best match also has to clearly beat
+# the next-best one, or two different real locations could get silently
+# confused with each other (e.g. a misread "Magritte +" could as easily be
+# +1, +2, or +3). Both thresholds were picked by checking real OCR-style
+# misreads (e.g. "Paccar" -> "Paccan") against this exact list.
+LOCATION_SIMILARITY_CUTOFF = 0.80
+LOCATION_SIMILARITY_MARGIN = 0.06
+
+
+def _fuzzy_canonical_location(lower_label):
+    """If `lower_label` is a close-but-not-exact spelling of exactly one
+    canonical location -- e.g. an OCR misread like "Paccar" -> "Paccan" --
+    return that canonical name. Returns None if there's no confident,
+    unambiguous match."""
+    scored = sorted(
+        ((difflib.SequenceMatcher(None, lower_label, c.lower()).ratio(), c) for c in ROSTER_ORDER),
+        reverse=True,
+    )
+    best_ratio, best_name = scored[0]
+    second_ratio = scored[1][0] if len(scored) > 1 else 0.0
+    if best_ratio >= LOCATION_SIMILARITY_CUTOFF and (best_ratio - second_ratio) >= LOCATION_SIMILARITY_MARGIN:
+        return best_name
+    return None
+
 
 def normalize_location_label(raw):
     """Turn a raw OCR'd location/post label into its canonical museum-dashboard name."""
@@ -147,7 +174,12 @@ def normalize_location_label(raw):
         if needle in lower:
             return replacement
 
-    # No explicit rename rule matched — just clean up "Salle/Zaal" style duplication.
+    fuzzy = _fuzzy_canonical_location(lower)
+    if fuzzy:
+        return fuzzy
+
+    # No explicit rename rule or confident fuzzy match — just clean up
+    # "Salle/Zaal" style duplication and keep the label as-is.
     cleaned = _ZAAL_PATTERN.sub("Salle", label)
     cleaned = _ZAAL_SUFFIX_PATTERN.sub("", cleaned)
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" +/-")
