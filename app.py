@@ -327,24 +327,35 @@ def edit_upload():
         # Rows the admin removed with the "x" button never get submitted as
         # shift_id/name/position, but their id is still in original_shift_id
         # (rendered once per row up front) -- the difference is what to delete.
-        kept_ids = {int(i) for i in shift_ids}
+        # Rows added with "+ Add colleague" submit an empty shift_id.
+        kept_ids = {int(i) for i in shift_ids if i}
         removed_ids = {int(i) for i in original_ids} - kept_ids
 
         updated = 0
+        added = 0
         name_warnings = []
         for shift_id, name, position in zip(shift_ids, names, positions):
-            ok, warning = database.update_shift_entry(int(shift_id), name, position)
-            if ok:
-                updated += 1
+            if shift_id:
+                ok, warning = database.update_shift_entry(int(shift_id), name, position)
+                if ok:
+                    updated += 1
+            else:
+                ok, warning = database.add_shift_entry(source_image, shift_date, name, position)
+                if ok:
+                    added += 1
             if warning:
                 name_warnings.append(warning)
 
         removed = sum(database.delete_shift_entry(shift_id) for shift_id in removed_ids)
 
-        msg = f"Updated {updated} entr{'y' if updated == 1 else 'ies'}."
+        parts = []
+        if updated:
+            parts.append(f"Updated {updated} entr{'y' if updated == 1 else 'ies'}.")
+        if added:
+            parts.append(f"Added {added}.")
         if removed:
-            msg += f" Removed {removed}."
-        flash(msg, "success")
+            parts.append(f"Removed {removed}.")
+        flash(" ".join(parts) if parts else "No changes.", "success")
         for typed, existing in name_warnings:
             flash(
                 f'"{typed}" looks similar to existing colleague "{existing}" — '

@@ -281,6 +281,40 @@ def delete_shift_entry(shift_id):
         conn.close()
 
 
+def add_shift_entry(source_image, shift_date, name, position):
+    """Add a brand-new shift to an already-saved upload batch from the
+    "Modify" screen -- e.g. a colleague Gemini missed entirely. Returns
+    (ok, name_warning); name_warning is a (typed_name, similar_existing_name)
+    pair when the name looks like a near-miss spelling of a different
+    colleague. ok is False if the name/position are blank, or if this exact
+    worker/location/date combination already exists."""
+    import location_rules
+
+    name = (name or "").strip()
+    position = (position or "").strip()
+    if not name or not position:
+        return False, None
+
+    conn = get_db()
+    try:
+        warning = find_similar_worker_name(conn, name)
+        group_name = location_rules.classify_group(position)
+        worker_id = get_or_create_worker(conn, name)
+        location_id = get_or_create_location(conn, position, group_name)
+        try:
+            conn.execute(
+                "INSERT INTO shifts (worker_id, location_id, shift_date, source_image) VALUES (?, ?, ?, ?)",
+                (worker_id, location_id, shift_date, source_image),
+            )
+            conn.commit()
+            return True, (name, warning) if warning else None
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            return False, None
+    finally:
+        conn.close()
+
+
 def save_shifts(entries, shift_date, source_image=None):
     """entries: list of dicts {name, position, group (optional)}.
     Returns (count saved, count skipped as duplicates, name_warnings) where

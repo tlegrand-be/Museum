@@ -5,12 +5,12 @@
 <a class="back-link" href="{{ url_for('uploads_page') }}">&larr; Back to upload history</a>
 <h1 style="margin-bottom: 6px;">Modify names — {{ shift_date }}</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
-  Fix any name or location that was read wrong, or remove a row entirely with
-  the &times; if someone shouldn't have been included. This only changes these
-  {{ entries | length }} shift{{ 's' if entries | length != 1 else '' }} from this
+  Fix any name or location that was read wrong, remove a row entirely with the
+  &times; if someone shouldn't have been included, or add someone Gemini
+  missed with "+ Add colleague" below. This only changes shifts from this one
   upload — it won't touch shifts from any other upload, and works even though
-  the source photo is gone. Start typing a name to see existing colleagues —
-  pick one instead of retyping it to avoid creating a near-duplicate.
+  the source photo is gone. Start typing a name (or pick one from the list) to
+  see existing colleagues instead of retyping one and creating a near-duplicate.
 </p>
 
 <datalist id="knownNames">
@@ -40,6 +40,12 @@
         <td>
           <input type="hidden" name="shift_id" value="{{ e.id }}">
           <input type="text" name="name" value="{{ e.name }}" list="knownNames">
+          <select class="name-picker">
+            <option value="" selected>— or pick existing colleague —</option>
+            {% for n in worker_names %}
+            <option value="{{ n }}">{{ n }}</option>
+            {% endfor %}
+          </select>
         </td>
         <td>
           <select name="position">
@@ -57,15 +63,56 @@
     </tbody>
   </table>
 
+  <button class="btn ghost" type="button" id="addRow" style="margin-top: 12px;">+ Add colleague</button>
   <button class="btn brass" type="submit" style="margin-top: 24px;">Save changes</button>
 </form>
 
 <script>
+const editRows = document.getElementById('editRows');
+const LOCATIONS = {{ locations | tojson }};
+const WORKER_NAMES = {{ worker_names | tojson }};
 let removedCount = 0;
-document.getElementById('editRows').addEventListener('click', e => {
+
+function rowTemplate() {
+  const tr = document.createElement('tr');
+  const posOptions = ['<option value="" selected disabled>-- choose location --</option>']
+    .concat(LOCATIONS.map(loc => `<option value="${loc}">${loc}</option>`))
+    .join('');
+  const nameOptions = ['<option value="" selected>— or pick existing colleague —</option>']
+    .concat(WORKER_NAMES.map(n => `<option value="${n}">${n}</option>`))
+    .join('');
+  tr.innerHTML = `
+    <td>
+      <input type="hidden" name="shift_id" value="">
+      <input type="text" name="name" value="" list="knownNames">
+      <select class="name-picker">${nameOptions}</select>
+    </td>
+    <td><select name="position">${posOptions}</select></td>
+    <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;">&times;</button></td>
+  `;
+  return tr;
+}
+
+document.getElementById('addRow').addEventListener('click', () => {
+  editRows.appendChild(rowTemplate());
+  editRows.lastElementChild.querySelector('input[name="name"]').focus();
+});
+
+editRows.addEventListener('click', e => {
   if (!e.target.classList.contains('remove-row')) return;
-  e.target.closest('tr').remove();
-  removedCount++;
+  const row = e.target.closest('tr');
+  // Only rows that existed before this page loaded (a real shift_id) count
+  // toward the removal confirmation -- a freshly added, unsaved row can
+  // just be discarded silently.
+  if (row.querySelector('input[name="shift_id"]').value) removedCount++;
+  row.remove();
+});
+editRows.addEventListener('change', e => {
+  if (!e.target.classList.contains('name-picker')) return;
+  const picked = e.target.value;
+  if (!picked) return;
+  e.target.closest('td').querySelector('input[name="name"]').value = picked;
+  e.target.value = '';
 });
 document.getElementById('editUploadForm').addEventListener('submit', e => {
   if (removedCount > 0 && !confirm(`Remove ${removedCount} shift(s) permanently? This can't be undone.`)) {

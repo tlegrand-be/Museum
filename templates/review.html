@@ -32,6 +32,12 @@
         <td><input type="checkbox" name="keep" value="{{ loop.index0 }}" {{ '' if e.flagged_skip else 'checked' }}></td>
         <td>
           <input type="text" name="name" value="{{ e.name }}" list="knownNames">
+          <select class="name-picker">
+            <option value="" selected>— or pick existing colleague —</option>
+            {% for n in worker_names %}
+            <option value="{{ n }}">{{ n }}</option>
+            {% endfor %}
+          </select>
           {% if e.flagged_skip %}
           <div class="flag-note">marked {{ e.background }} — not scheduled?</div>
           {% endif %}
@@ -61,15 +67,22 @@
 <script>
 const reviewRows = document.getElementById('reviewRows');
 const LOCATIONS = {{ locations | tojson }};
+const WORKER_NAMES = {{ worker_names | tojson }};
 
 function rowTemplate(index) {
   const tr = document.createElement('tr');
   const options = ['<option value="" selected disabled>-- choose location --</option>']
     .concat(LOCATIONS.map(loc => `<option value="${loc}">${loc}</option>`))
     .join('');
+  const nameOptions = ['<option value="" selected>— or pick existing colleague —</option>']
+    .concat(WORKER_NAMES.map(n => `<option value="${n}">${n}</option>`))
+    .join('');
   tr.innerHTML = `
     <td><input type="checkbox" name="keep" value="${index}" checked></td>
-    <td><input type="text" name="name" value="" list="knownNames"></td>
+    <td>
+      <input type="text" name="name" value="" list="knownNames">
+      <select class="name-picker">${nameOptions}</select>
+    </td>
     <td>
       <select name="position">${options}</select>
       <input type="hidden" name="raw_position" value="">
@@ -93,6 +106,14 @@ reviewRows.addEventListener('click', e => {
   [...reviewRows.querySelectorAll('tr')].forEach((row, i) => {
     row.querySelector('input[name="keep"]').value = i;
   });
+});
+
+reviewRows.addEventListener('change', e => {
+  if (!e.target.classList.contains('name-picker')) return;
+  const picked = e.target.value;
+  if (!picked) return;
+  e.target.closest('td').querySelector('input[name="name"]').value = picked;
+  e.target.value = '';
 });
 </script>
 {% endblock %}
