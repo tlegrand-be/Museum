@@ -322,6 +322,13 @@ def edit_upload():
         shift_ids = request.form.getlist("shift_id")
         names = request.form.getlist("name")
         positions = request.form.getlist("position")
+        original_ids = request.form.getlist("original_shift_id")
+
+        # Rows the admin removed with the "x" button never get submitted as
+        # shift_id/name/position, but their id is still in original_shift_id
+        # (rendered once per row up front) -- the difference is what to delete.
+        kept_ids = {int(i) for i in shift_ids}
+        removed_ids = {int(i) for i in original_ids} - kept_ids
 
         updated = 0
         name_warnings = []
@@ -332,7 +339,12 @@ def edit_upload():
             if warning:
                 name_warnings.append(warning)
 
-        flash(f"Updated {updated} entr{'y' if updated == 1 else 'ies'}.", "success")
+        removed = sum(database.delete_shift_entry(shift_id) for shift_id in removed_ids)
+
+        msg = f"Updated {updated} entr{'y' if updated == 1 else 'ies'}."
+        if removed:
+            msg += f" Removed {removed}."
+        flash(msg, "success")
         for typed, existing in name_warnings:
             flash(
                 f'"{typed}" looks similar to existing colleague "{existing}" — '

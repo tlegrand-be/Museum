@@ -5,7 +5,8 @@
 <a class="back-link" href="{{ url_for('uploads_page') }}">&larr; Back to upload history</a>
 <h1 style="margin-bottom: 6px;">Modify names — {{ shift_date }}</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
-  Fix any name or location that was read wrong. This only changes these
+  Fix any name or location that was read wrong, or remove a row entirely with
+  the &times; if someone shouldn't have been included. This only changes these
   {{ entries | length }} shift{{ 's' if entries | length != 1 else '' }} from this
   upload — it won't touch shifts from any other upload, and works even though
   the source photo is gone. Start typing a name to see existing colleagues —
@@ -18,18 +19,22 @@
   {% endfor %}
 </datalist>
 
-<form class="upload-form" method="post" action="{{ url_for('edit_upload') }}">
+<form class="upload-form" method="post" action="{{ url_for('edit_upload') }}" id="editUploadForm">
   <input type="hidden" name="source_image" value="{{ source_image }}">
   <input type="hidden" name="shift_date" value="{{ shift_date }}">
+  {% for e in entries %}
+  <input type="hidden" name="original_shift_id" value="{{ e.id }}">
+  {% endfor %}
 
   <table class="review-table" style="margin-top: 12px;">
     <thead>
       <tr>
         <th>Name</th>
         <th>Position / Location</th>
+        <th style="width: 40px;"></th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="editRows">
       {% for e in entries %}
       <tr>
         <td>
@@ -46,6 +51,7 @@
             {% endfor %}
           </select>
         </td>
+        <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;">&times;</button></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -53,4 +59,18 @@
 
   <button class="btn brass" type="submit" style="margin-top: 24px;">Save changes</button>
 </form>
+
+<script>
+let removedCount = 0;
+document.getElementById('editRows').addEventListener('click', e => {
+  if (!e.target.classList.contains('remove-row')) return;
+  e.target.closest('tr').remove();
+  removedCount++;
+});
+document.getElementById('editUploadForm').addEventListener('submit', e => {
+  if (removedCount > 0 && !confirm(`Remove ${removedCount} shift(s) permanently? This can't be undone.`)) {
+    e.preventDefault();
+  }
+});
+</script>
 {% endblock %}

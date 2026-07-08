@@ -265,6 +265,22 @@ def update_shift_entry(shift_id, name, position):
         conn.close()
 
 
+def delete_shift_entry(shift_id):
+    """Remove a single shift row outright (e.g. someone who was misread as
+    present when they weren't there at all), used from the "Modify" screen.
+    Cleans up any worker/location left with zero shifts as a result, same as
+    delete_upload does for a whole batch."""
+    conn = get_db()
+    try:
+        cur = conn.execute("DELETE FROM shifts WHERE id = ?", (shift_id,))
+        conn.execute("DELETE FROM workers WHERE id NOT IN (SELECT DISTINCT worker_id FROM shifts)")
+        conn.execute("DELETE FROM locations WHERE id NOT IN (SELECT DISTINCT location_id FROM shifts)")
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def save_shifts(entries, shift_date, source_image=None):
     """entries: list of dicts {name, position, group (optional)}.
     Returns (count saved, count skipped as duplicates, name_warnings) where
