@@ -78,11 +78,19 @@ def init_db():
 def get_or_create_worker(conn, name):
     """Case-insensitive lookup, so "Ekofo" and "EKOFO" (e.g. from a roster
     sheet that's sometimes handwritten in caps) resolve to the same colleague
-    instead of silently forking into two workers."""
+    instead of silently forking into two workers. If there's no exact match
+    but the name is a close spelling of an existing colleague -- e.g. an OCR
+    misread like "EKOFO" vs "EKORO" -- resolves to that colleague too, rather
+    than creating a near-duplicate."""
     name = name.strip()
     row = conn.execute("SELECT id FROM workers WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
     if row:
         return row["id"]
+    similar = find_similar_worker_name(conn, name)
+    if similar:
+        row = conn.execute("SELECT id FROM workers WHERE name = ?", (similar,)).fetchone()
+        if row:
+            return row["id"]
     cur = conn.execute("INSERT INTO workers (name) VALUES (?)", (name,))
     return cur.lastrowid
 
@@ -93,11 +101,8 @@ NAME_SIMILARITY_CUTOFF = 0.78
 def find_similar_worker_name(conn, name):
     """If `name` doesn't already match an existing colleague (case-insensitively)
     but is a close spelling of one -- e.g. an OCR misread like "EKOFO" vs
-    "EKORO" -- return that colleague's name, so callers can warn a human
-    instead of silently forking a near-duplicate. Names are open-ended (unlike
-    locations, which have a fixed canonical list), so we can't auto-correct
-    with confidence -- two colleagues could genuinely have similar names --
-    this only ever surfaces a warning, it never changes what gets saved.
+    "EKORO" -- return that colleague's name. Used by get_or_create_worker to
+    fold near-miss spellings into the existing colleague automatically.
     Returns None if there's an exact match or no close-enough one."""
     name = (name or "").strip()
     if not name:
@@ -224,24 +229,20 @@ def all_worker_names():
 def update_shift_entry(shift_id, name, position):
     """Repoint one already-saved shift at a corrected name and/or location --
     used from the "Modify" screen in Upload history, where the source photo
-    may be long gone. Returns (ok, name_warning); name_warning is a
-    (typed_name, similar_existing_name) pair when the corrected name looks
-    like a near-miss spelling of a different colleague, so the caller can
-    flag it without blocking the save."""
+    may be long gone. Returns whether the shift was found and updated."""
     import location_rules
 
     name = (name or "").strip()
     position = (position or "").strip()
     if not name or not position:
-        return False, None
+        return False
 
     conn = get_db()
     try:
         row = conn.execute("SELECT id FROM shifts WHERE id = ?", (shift_id,)).fetchone()
         if not row:
-            return False, None
+            return False
 
-        warning = find_similar_worker_name(conn, name)
         group_name = location_rules.classify_group(position)
         worker_id = get_or_create_worker(conn, name)
         location_id = get_or_create_location(conn, position, group_name)
@@ -260,7 +261,7 @@ def update_shift_entry(shift_id, name, position):
         conn.execute("DELETE FROM workers WHERE id NOT IN (SELECT DISTINCT worker_id FROM shifts)")
         conn.execute("DELETE FROM locations WHERE id NOT IN (SELECT DISTINCT location_id FROM shifts)")
         conn.commit()
-        return True, (name, warning) if warning else None
+        return True
     finally:
         conn.close()
 
@@ -283,21 +284,18 @@ def delete_shift_entry(shift_id):
 
 def add_shift_entry(source_image, shift_date, name, position):
     """Add a brand-new shift to an already-saved upload batch from the
-    "Modify" screen -- e.g. a colleague Gemini missed entirely. Returns
-    (ok, name_warning); name_warning is a (typed_name, similar_existing_name)
-    pair when the name looks like a near-miss spelling of a different
-    colleague. ok is False if the name/position are blank, or if this exact
-    worker/location/date combination already exists."""
+    "Modify" screen -- e.g. a colleague Gemini missed entirely. Returns False
+    if the name/position are blank, or if this exact worker/location/date
+    combination already exists."""
     import location_rules
 
     name = (name or "").strip()
     position = (position or "").strip()
     if not name or not position:
-        return False, None
+        return False
 
     conn = get_db()
     try:
-        warning = find_similar_worker_name(conn, name)
         group_name = location_rules.classify_group(position)
         worker_id = get_or_create_worker(conn, name)
         location_id = get_or_create_location(conn, position, group_name)
@@ -307,34 +305,27 @@ def add_shift_entry(source_image, shift_date, name, position):
                 (worker_id, location_id, shift_date, source_image),
             )
             conn.commit()
-            return True, (name, warning) if warning else None
+            return True
         except sqlite3.IntegrityError:
             conn.rollback()
-            return False, None
+            return False
     finally:
         conn.close()
 
 
 def save_shifts(entries, shift_date, source_image=None):
     """entries: list of dicts {name, position, group (optional)}.
-    Returns (count saved, count skipped as duplicates, name_warnings) where
-    name_warnings is a list of (typed_name, similar_existing_name) pairs for
-    any name that looked like a near-miss spelling of an existing colleague,
-    so the caller can flag possible duplicates without blocking the save."""
+    Returns (count saved, count skipped as duplicates)."""
     import location_rules
 
     conn = get_db()
     saved, skipped = 0, 0
-    name_warnings = []
     try:
         for e in entries:
             name = (e.get("name") or "").strip()
             position = (e.get("position") or "").strip()
             if not name or not position:
                 continue
-            similar = find_similar_worker_name(conn, name)
-            if similar:
-                name_warnings.append((name, similar))
             group_name = e.get("group") or location_rules.classify_group(position)
             worker_id = get_or_create_worker(conn, name)
             location_id = get_or_create_location(conn, position, group_name)
@@ -349,7 +340,7 @@ def save_shifts(entries, shift_date, source_image=None):
         conn.commit()
     finally:
         conn.close()
-    return saved, skipped, name_warnings
+    return saved, skipped
 
 
 def overview_stats():
@@ -485,6 +476,20 @@ def worker_detail(worker_id):
         "by_location": [dict(r) for r in by_location],
         "history": [dict(r) for r in history],
     }
+
+
+def delete_worker(worker_id):
+    """Delete a colleague entirely, along with every shift of theirs (the
+    shifts.worker_id FK is ON DELETE CASCADE) -- e.g. someone who was OCR'd
+    into existence as a one-off misread and shouldn't be in the ledger at
+    all. Also drops any location left with zero shifts as a result."""
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM workers WHERE id = ?", (worker_id,))
+        conn.execute("DELETE FROM locations WHERE id NOT IN (SELECT DISTINCT location_id FROM shifts)")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def location_detail(location_id):

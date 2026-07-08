@@ -3,8 +3,18 @@
 {% block content %}
 
 <a class="back-link" href="{{ url_for('index') }}">&larr; Overview</a>
-<h1 style="margin-bottom: 4px;">{{ detail.worker.name }}</h1>
-<p style="opacity:0.7; margin-bottom: 24px;">{{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged</p>
+<div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 16px;">
+  <div>
+    <h1 style="margin-bottom: 4px;">{{ detail.worker.name }}</h1>
+    <p style="opacity:0.7; margin-bottom: 24px;">{{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged</p>
+  </div>
+  {% if is_admin %}
+  <form method="post" action="{{ url_for('delete_worker', worker_id=detail.worker.id) }}"
+        onsubmit="return confirm('Remove {{ detail.worker.name }} and all {{ detail.total_shifts }} of their shift(s) from the ledger? This cannot be undone.');">
+    <button class="btn danger" type="submit" style="padding:8px 14px; font-size:11px;">Delete colleague</button>
+  </form>
+  {% endif %}
+</div>
 
 <div class="worker-layout">
   {% include "worker_sidebar.html" %}

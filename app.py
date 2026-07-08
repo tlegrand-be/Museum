@@ -261,7 +261,7 @@ def review(token):
                 database.save_location_alias(raw, submitted)
 
         shift_date = request.form.get("shift_date") or data["shift_date"]
-        saved, skipped, name_warnings = database.save_shifts(entries, shift_date, data.get("source_image"))
+        saved, skipped = database.save_shifts(entries, shift_date, data.get("source_image"))
         pending_path.unlink(missing_ok=True)
 
         # The photo's only job was getting data into the ledger — once that's
@@ -275,12 +275,6 @@ def review(token):
         if skipped:
             msg += f" ({skipped} already existed for that date and were skipped.)"
         flash(msg, "success")
-        for typed, existing in name_warnings:
-            flash(
-                f'"{typed}" looks similar to existing colleague "{existing}" — '
-                f"check the Colleagues page in case this is a duplicate spelling.",
-                "warning",
-            )
         return redirect(url_for("index"))
 
     locations = [loc for loc in location_rules.ROSTER_ORDER if loc != "Musicorum"]
@@ -333,18 +327,13 @@ def edit_upload():
 
         updated = 0
         added = 0
-        name_warnings = []
         for shift_id, name, position in zip(shift_ids, names, positions):
             if shift_id:
-                ok, warning = database.update_shift_entry(int(shift_id), name, position)
-                if ok:
+                if database.update_shift_entry(int(shift_id), name, position):
                     updated += 1
             else:
-                ok, warning = database.add_shift_entry(source_image, shift_date, name, position)
-                if ok:
+                if database.add_shift_entry(source_image, shift_date, name, position):
                     added += 1
-            if warning:
-                name_warnings.append(warning)
 
         removed = sum(database.delete_shift_entry(shift_id) for shift_id in removed_ids)
 
@@ -356,12 +345,6 @@ def edit_upload():
         if removed:
             parts.append(f"Removed {removed}.")
         flash(" ".join(parts) if parts else "No changes.", "success")
-        for typed, existing in name_warnings:
-            flash(
-                f'"{typed}" looks similar to existing colleague "{existing}" — '
-                f"check the Colleagues page in case this is a duplicate spelling.",
-                "warning",
-            )
         return redirect(url_for("uploads_page"))
 
     entries = database.get_shifts_for_upload(source_image, shift_date)
@@ -407,6 +390,17 @@ def worker_page(worker_id):
         "worker.html", detail=detail, locations=locations,
         worker_id_for_sidebar=worker_id, active_location_id=None,
     )
+
+
+@app.route("/worker/<int:worker_id>/delete", methods=["POST"])
+@admin_required
+def delete_worker(worker_id):
+    detail = database.worker_detail(worker_id)
+    if not detail:
+        abort(404)
+    database.delete_worker(worker_id)
+    flash(f'Removed "{detail["worker"]["name"]}" and all {detail["total_shifts"]} of their shift(s).', "success")
+    return redirect(url_for("colleagues_page"))
 
 
 @app.route("/worker/<int:worker_id>/location/<int:location_id>")
