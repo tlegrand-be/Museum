@@ -317,6 +317,7 @@ def edit_upload():
         names = request.form.getlist("name")
         positions = request.form.getlist("position")
         original_ids = request.form.getlist("original_shift_id")
+        new_shift_date = request.form.get("new_shift_date") or shift_date
 
         # Rows the admin removed with the "x" button never get submitted as
         # shift_id/name/position, but their id is still in original_shift_id
@@ -329,10 +330,10 @@ def edit_upload():
         added = 0
         for shift_id, name, position in zip(shift_ids, names, positions):
             if shift_id:
-                if database.update_shift_entry(int(shift_id), name, position):
+                if database.update_shift_entry(int(shift_id), name, position, new_shift_date):
                     updated += 1
             else:
-                if database.add_shift_entry(source_image, shift_date, name, position):
+                if database.add_shift_entry(source_image, new_shift_date, name, position):
                     added += 1
 
         removed = sum(database.delete_shift_entry(shift_id) for shift_id in removed_ids)
@@ -344,6 +345,8 @@ def edit_upload():
             parts.append(f"Added {added}.")
         if removed:
             parts.append(f"Removed {removed}.")
+        if new_shift_date != shift_date:
+            parts.append(f"Date changed to {new_shift_date}.")
         flash(" ".join(parts) if parts else "No changes.", "success")
         return redirect(url_for("uploads_page"))
 

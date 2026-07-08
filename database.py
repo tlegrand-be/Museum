@@ -226,15 +226,17 @@ def all_worker_names():
         conn.close()
 
 
-def update_shift_entry(shift_id, name, position):
-    """Repoint one already-saved shift at a corrected name and/or location --
-    used from the "Modify" screen in Upload history, where the source photo
-    may be long gone. Returns whether the shift was found and updated."""
+def update_shift_entry(shift_id, name, position, shift_date):
+    """Repoint one already-saved shift at a corrected name, location, and/or
+    date -- used from the "Modify" screen in Upload history, where the
+    source photo may be long gone. Returns whether the shift was found and
+    updated."""
     import location_rules
 
     name = (name or "").strip()
     position = (position or "").strip()
-    if not name or not position:
+    shift_date = (shift_date or "").strip()
+    if not name or not position or not shift_date:
         return False
 
     conn = get_db()
@@ -249,8 +251,8 @@ def update_shift_entry(shift_id, name, position):
 
         try:
             conn.execute(
-                "UPDATE shifts SET worker_id = ?, location_id = ? WHERE id = ?",
-                (worker_id, location_id, shift_id),
+                "UPDATE shifts SET worker_id = ?, location_id = ?, shift_date = ? WHERE id = ?",
+                (worker_id, location_id, shift_date, shift_id),
             )
         except sqlite3.IntegrityError:
             # This edit now matches another shift already saved for the same

@@ -20,7 +20,10 @@
   <input type="hidden" name="original_shift_id" value="{{ e.id }}">
   {% endfor %}
 
-  <table class="review-table" style="margin-top: 12px;">
+  <label for="newShiftDate">Date (applies to every shift below)</label>
+  <input type="date" id="newShiftDate" name="new_shift_date" value="{{ shift_date }}" required style="max-width: 220px;">
+
+  <table class="review-table" style="margin-top: 24px;">
     <thead>
       <tr>
         <th>Name</th>
