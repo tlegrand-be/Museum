@@ -9,7 +9,7 @@ EXACT_RULES = [
     ("ok", "CT Ancien"),          # OCR sometimes drops the "CT/TC AA/" prefix
     ("1a", "Argenteau"),
     ("4/5", "Agora -2"),
-    ("8-9", "Balat 7-8-9"),
+    ("8-9", "Balat 55-7-8-9"),
     ("61", "Balat Patio 2"),
     ("mmm", "Magritte SAS"),      # bare "MMM" with no further qualifier
 ]
@@ -46,14 +46,14 @@ RENAME_RULES = [
     ("balat 3-4", "Balat 3-4"),
     ("salle 51", "Balat 3-4"),
     ("zaal 51", "Balat 3-4"),
-    ("rubens", "Salle 52"),
-    ("salle 52", "Salle 52"),
-    ("zaal 52", "Salle 52"),
-    ("salle 54", "Balat 51-53-54"),
-    ("zaal 54", "Balat 51-53-54"),
-    ("balat 7-8-9", "Balat 7-8-9"),
-    ("salle 55", "Balat 7-8-9"),
-    ("zaal 55", "Balat 7-8-9"),
+    ("rubens", "Balat 52-53-54"),
+    ("salle 52", "Balat 52-53-54"),
+    ("zaal 52", "Balat 52-53-54"),
+    ("salle 54", "Balat 52-53-54"),
+    ("zaal 54", "Balat 52-53-54"),
+    ("balat 7-8-9", "Balat 55-7-8-9"),
+    ("salle 55", "Balat 55-7-8-9"),
+    ("zaal 55", "Balat 55-7-8-9"),
     ("patio 2", "Balat Patio 2"),
     ("salle 61", "Balat Patio 2"),
     ("zaal 61", "Balat Patio 2"),
@@ -102,9 +102,8 @@ ROSTER_ORDER = [
     "Entrée Balat",
     "Balat 1-2",
     "Balat 3-4",
-    "Salle 52",
-    "Balat 51-53-54",
-    "Balat 7-8-9",
+    "Balat 52-53-54",
+    "Balat 55-7-8-9",
     "Balat Patio 2",
     "Agora -2",
     "Magritte Coordinateur",
@@ -200,8 +199,8 @@ def classify_group(location_name):
         return "MAGRITTE"
 
     balat_names = {
-        "entrée balat", "balat 1-2", "balat 3-4", "salle 52",
-        "balat 51-53-54", "balat 7-8-9", "balat patio 2", "paccar",
+        "entrée balat", "balat 1-2", "balat 3-4",
+        "balat 52-53-54", "balat 55-7-8-9", "balat patio 2", "paccar",
     }
     if n in balat_names or "balat" in n or "salle" in n or "patio" in n or "paccar" in n:
         return "BALAT"
