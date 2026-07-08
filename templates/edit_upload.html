@@ -9,15 +9,9 @@
   &times; if someone shouldn't have been included, or add someone Gemini
   missed with "+ Add colleague" below. This only changes shifts from this one
   upload — it won't touch shifts from any other upload, and works even though
-  the source photo is gone. Start typing a name (or pick one from the list) to
-  see existing colleagues instead of retyping one and creating a near-duplicate.
+  the source photo is gone. Pick from the list of known colleagues rather
+  than retyping a name and risking a near-duplicate spelling.
 </p>
-
-<datalist id="knownNames">
-  {% for n in worker_names %}
-  <option value="{{ n }}">
-  {% endfor %}
-</datalist>
 
 <form class="upload-form" method="post" action="{{ url_for('edit_upload') }}" id="editUploadForm">
   <input type="hidden" name="source_image" value="{{ source_image }}">
@@ -39,11 +33,12 @@
       <tr>
         <td>
           <input type="hidden" name="shift_id" value="{{ e.id }}">
-          <input type="text" name="name" value="{{ e.name }}" list="knownNames">
-          <select class="name-picker">
-            <option value="" selected>— or pick existing colleague —</option>
+          <select name="name">
+            {% if e.name not in worker_names %}
+            <option value="{{ e.name }}" selected>{{ e.name }} (new)</option>
+            {% endif %}
             {% for n in worker_names %}
-            <option value="{{ n }}">{{ n }}</option>
+            <option value="{{ n }}" {% if n == e.name %}selected{% endif %}>{{ n }}</option>
             {% endfor %}
           </select>
         </td>
@@ -78,14 +73,13 @@ function rowTemplate() {
   const posOptions = ['<option value="" selected disabled>-- choose location --</option>']
     .concat(LOCATIONS.map(loc => `<option value="${loc}">${loc}</option>`))
     .join('');
-  const nameOptions = ['<option value="" selected>— or pick existing colleague —</option>']
+  const nameOptions = ['<option value="" selected disabled>-- choose colleague --</option>']
     .concat(WORKER_NAMES.map(n => `<option value="${n}">${n}</option>`))
     .join('');
   tr.innerHTML = `
     <td>
       <input type="hidden" name="shift_id" value="">
-      <input type="text" name="name" value="" list="knownNames">
-      <select class="name-picker">${nameOptions}</select>
+      <select name="name">${nameOptions}</select>
     </td>
     <td><select name="position">${posOptions}</select></td>
     <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;">&times;</button></td>
@@ -95,7 +89,7 @@ function rowTemplate() {
 
 document.getElementById('addRow').addEventListener('click', () => {
   editRows.appendChild(rowTemplate());
-  editRows.lastElementChild.querySelector('input[name="name"]').focus();
+  editRows.lastElementChild.querySelector('select[name="name"]').focus();
 });
 
 editRows.addEventListener('click', e => {
@@ -106,13 +100,6 @@ editRows.addEventListener('click', e => {
   // just be discarded silently.
   if (row.querySelector('input[name="shift_id"]').value) removedCount++;
   row.remove();
-});
-editRows.addEventListener('change', e => {
-  if (!e.target.classList.contains('name-picker')) return;
-  const picked = e.target.value;
-  if (!picked) return;
-  e.target.closest('td').querySelector('input[name="name"]').value = picked;
-  e.target.value = '';
 });
 document.getElementById('editUploadForm').addEventListener('submit', e => {
   if (removedCount > 0 && !confirm(`Remove ${removedCount} shift(s) permanently? This can't be undone.`)) {

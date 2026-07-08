@@ -7,12 +7,6 @@
 <p style="opacity:0.7; margin-bottom: 8px;">Check the date, names, and locations Gemini read from the photo. Fix any mistakes, uncheck anyone that shouldn't be saved, then confirm.</p>
 <p style="opacity:0.7; margin-bottom: 24px;">Rows tinted <span style="color:#C97B4A; font-weight:600;">orange</span> or <span style="color:#B0342A; font-weight:600;">red</span> were flagged on the roster as not working this slot, and start unchecked — double-check the color call and re-check the box if it's wrong.</p>
 
-<datalist id="knownNames">
-  {% for n in worker_names %}
-  <option value="{{ n }}">
-  {% endfor %}
-</datalist>
-
 <form class="upload-form" method="post" action="{{ url_for('review', token=token) }}">
   <label for="shift_date">Date (auto-detected from the photo — edit if wrong)</label>
   <input type="date" id="shift_date" name="shift_date" value="{{ data.shift_date }}" required style="max-width: 220px;">
@@ -31,11 +25,12 @@
       <tr class="{{ 'row-flag-' + e.background if e.flagged_skip else '' }}">
         <td><input type="checkbox" name="keep" value="{{ loop.index0 }}" {{ '' if e.flagged_skip else 'checked' }}></td>
         <td>
-          <input type="text" name="name" value="{{ e.name }}" list="knownNames">
-          <select class="name-picker">
-            <option value="" selected>— or pick existing colleague —</option>
+          <select name="name">
+            {% if e.name not in worker_names %}
+            <option value="{{ e.name }}" selected>{{ e.name }} (new)</option>
+            {% endif %}
             {% for n in worker_names %}
-            <option value="{{ n }}">{{ n }}</option>
+            <option value="{{ n }}" {% if n == e.name %}selected{% endif %}>{{ n }}</option>
             {% endfor %}
           </select>
           {% if e.flagged_skip %}
@@ -74,15 +69,12 @@ function rowTemplate(index) {
   const options = ['<option value="" selected disabled>-- choose location --</option>']
     .concat(LOCATIONS.map(loc => `<option value="${loc}">${loc}</option>`))
     .join('');
-  const nameOptions = ['<option value="" selected>— or pick existing colleague —</option>']
+  const nameOptions = ['<option value="" selected disabled>-- choose colleague --</option>']
     .concat(WORKER_NAMES.map(n => `<option value="${n}">${n}</option>`))
     .join('');
   tr.innerHTML = `
     <td><input type="checkbox" name="keep" value="${index}" checked></td>
-    <td>
-      <input type="text" name="name" value="" list="knownNames">
-      <select class="name-picker">${nameOptions}</select>
-    </td>
+    <td><select name="name">${nameOptions}</select></td>
     <td>
       <select name="position">${options}</select>
       <input type="hidden" name="raw_position" value="">
@@ -95,7 +87,7 @@ function rowTemplate(index) {
 
 document.getElementById('addRow').addEventListener('click', () => {
   reviewRows.appendChild(rowTemplate(reviewRows.children.length));
-  reviewRows.lastElementChild.querySelector('input[name="name"]').focus();
+  reviewRows.lastElementChild.querySelector('select[name="name"]').focus();
 });
 
 reviewRows.addEventListener('click', e => {
@@ -106,14 +98,6 @@ reviewRows.addEventListener('click', e => {
   [...reviewRows.querySelectorAll('tr')].forEach((row, i) => {
     row.querySelector('input[name="keep"]').value = i;
   });
-});
-
-reviewRows.addEventListener('change', e => {
-  if (!e.target.classList.contains('name-picker')) return;
-  const picked = e.target.value;
-  if (!picked) return;
-  e.target.closest('td').querySelector('input[name="name"]').value = picked;
-  e.target.value = '';
 });
 </script>
 {% endblock %}

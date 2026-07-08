@@ -409,16 +409,6 @@ form.upload-form input[type="text"] {
   margin-top: 4px;
 }
 
-/* Click-to-choose alternative to typing a name -- sits right under the name
-   field, resets to its placeholder once a pick has been copied into the
-   text input, so it's always ready to browse the list again. */
-.review-table select.name-picker {
-  margin-top: 4px;
-  font-size: 12px;
-  padding: 5px 8px;
-  opacity: 0.8;
-}
-
 /* Shared form field styling — any label/input pair outside .upload-form */
 .field-label {
   display: block;
