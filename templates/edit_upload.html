@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Modify upload — Roster Ledger{% endblock %}
+{% block content %}
+
+<a class="back-link" href="{{ url_for('uploads_page') }}">&larr; Back to upload history</a>
+<h1 style="margin-bottom: 6px;">Modify names — {{ shift_date }}</h1>
+<p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
+  Fix any name or location that was read wrong. This only changes these
+  {{ entries | length }} shift{{ 's' if entries | length != 1 else '' }} from this
+  upload — it won't touch shifts from any other upload, and works even though
+  the source photo is gone. Start typing a name to see existing colleagues —
+  pick one instead of retyping it to avoid creating a near-duplicate.
+</p>
+
+<datalist id="knownNames">
+  {% for n in worker_names %}
+  <option value="{{ n }}">
+  {% endfor %}
+</datalist>
+
+<form class="upload-form" method="post" action="{{ url_for('edit_upload') }}">
+  <input type="hidden" name="source_image" value="{{ source_image }}">
+  <input type="hidden" name="shift_date" value="{{ shift_date }}">
+
+  <table class="review-table" style="margin-top: 12px;">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Position / Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>
+          <input type="hidden" name="shift_id" value="{{ e.id }}">
+          <input type="text" name="name" value="{{ e.name }}" list="knownNames">
+        </td>
+        <td>
+          <select name="position">
+            {% if e.position not in locations %}
+            <option value="{{ e.position }}" selected>{{ e.position }} (unrecognized)</option>
+            {% endif %}
+            {% for loc in locations %}
+            <option value="{{ loc }}" {% if loc == e.position %}selected{% endif %}>{{ loc }}</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <button class="btn brass" type="submit" style="margin-top: 24px;">Save changes</button>
+</form>
+{% endblock %}

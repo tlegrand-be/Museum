@@ -4,9 +4,11 @@
 
 <h1 style="margin-bottom: 4px;">Upload history</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
-  Every roster photo that's been saved to the ledger. If one was uploaded by mistake
-  or read wrong, remove it here — this deletes only the shifts it created, and
-  won't touch anything from other uploads.
+  Every roster photo that's been saved to the ledger. If a name or location was
+  read wrong, use Modify to fix it — this works even after the photo itself has
+  been removed, since it edits the shifts directly. If the whole upload was a
+  mistake, Delete removes only the shifts it created, without touching anything
+  from other uploads.
 </p>
 
 {% if uploads | length == 0 %}
@@ -43,12 +45,16 @@
       <td style="opacity:0.7;">{{ u.uploaded_at }}</td>
       <td>
         {% if is_admin %}
-        <form method="post" action="{{ url_for('delete_upload') }}"
-              onsubmit="return confirm('Delete all {{ u.shift_count }} shift(s) from this upload ({{ u.shift_date }})? This cannot be undone.');">
-          <input type="hidden" name="source_image" value="{{ u.source_image }}">
-          <input type="hidden" name="shift_date" value="{{ u.shift_date }}">
-          <button class="btn danger" type="submit" style="padding:8px 14px; font-size:11px;">Delete</button>
-        </form>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <a class="btn ghost" style="padding:8px 14px; font-size:11px;"
+             href="{{ url_for('edit_upload', source_image=u.source_image, shift_date=u.shift_date) }}">Modify</a>
+          <form method="post" action="{{ url_for('delete_upload') }}"
+                onsubmit="return confirm('Delete all {{ u.shift_count }} shift(s) from this upload ({{ u.shift_date }})? This cannot be undone.');">
+            <input type="hidden" name="source_image" value="{{ u.source_image }}">
+            <input type="hidden" name="shift_date" value="{{ u.shift_date }}">
+            <button class="btn danger" type="submit" style="padding:8px 14px; font-size:11px;">Delete</button>
+          </form>
+        </div>
         {% endif %}
       </td>
     </tr>

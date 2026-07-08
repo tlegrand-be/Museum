@@ -1,5 +1,6 @@
 import sqlite3
 import json
+import difflib
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "instance" / "museum.db"
@@ -75,12 +76,39 @@ def init_db():
 
 
 def get_or_create_worker(conn, name):
+    """Case-insensitive lookup, so "Ekofo" and "EKOFO" (e.g. from a roster
+    sheet that's sometimes handwritten in caps) resolve to the same colleague
+    instead of silently forking into two workers."""
     name = name.strip()
-    row = conn.execute("SELECT id FROM workers WHERE name = ?", (name,)).fetchone()
+    row = conn.execute("SELECT id FROM workers WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
     if row:
         return row["id"]
     cur = conn.execute("INSERT INTO workers (name) VALUES (?)", (name,))
     return cur.lastrowid
+
+
+NAME_SIMILARITY_CUTOFF = 0.78
+
+
+def find_similar_worker_name(conn, name):
+    """If `name` doesn't already match an existing colleague (case-insensitively)
+    but is a close spelling of one -- e.g. an OCR misread like "EKOFO" vs
+    "EKORO" -- return that colleague's name, so callers can warn a human
+    instead of silently forking a near-duplicate. Names are open-ended (unlike
+    locations, which have a fixed canonical list), so we can't auto-correct
+    with confidence -- two colleagues could genuinely have similar names --
+    this only ever surfaces a warning, it never changes what gets saved.
+    Returns None if there's an exact match or no close-enough one."""
+    name = (name or "").strip()
+    if not name:
+        return None
+    existing = [r["name"] for r in conn.execute("SELECT name FROM workers").fetchall()]
+    lname = name.lower()
+    lookup = {n.lower(): n for n in existing}
+    if lname in lookup:
+        return None
+    match = difflib.get_close_matches(lname, lookup.keys(), n=1, cutoff=NAME_SIMILARITY_CUTOFF)
+    return lookup[match[0]] if match else None
 
 
 def get_or_create_location(conn, name, group_name="Other"):
@@ -162,19 +190,101 @@ def delete_upload(source_image, shift_date):
         conn.close()
 
 
+def get_shifts_for_upload(source_image, shift_date):
+    """Every individual shift row from one upload batch, for the "Modify"
+    screen -- this works even after the source photo has been deleted, since
+    it reads back off the shifts table rather than re-running OCR."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT s.id, w.name, l.name AS position FROM shifts s
+               JOIN workers w ON w.id = s.worker_id
+               JOIN locations l ON l.id = s.location_id
+               WHERE s.source_image = ? AND s.shift_date = ?
+               ORDER BY w.name COLLATE NOCASE""",
+            (source_image, shift_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def all_worker_names():
+    """Every known colleague name, for autocomplete on name fields -- lets
+    someone correcting a typo pick the existing spelling instead of retyping
+    it and risking a near-duplicate."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT name FROM workers ORDER BY name COLLATE NOCASE").fetchall()
+        return [r["name"] for r in rows]
+    finally:
+        conn.close()
+
+
+def update_shift_entry(shift_id, name, position):
+    """Repoint one already-saved shift at a corrected name and/or location --
+    used from the "Modify" screen in Upload history, where the source photo
+    may be long gone. Returns (ok, name_warning); name_warning is a
+    (typed_name, similar_existing_name) pair when the corrected name looks
+    like a near-miss spelling of a different colleague, so the caller can
+    flag it without blocking the save."""
+    import location_rules
+
+    name = (name or "").strip()
+    position = (position or "").strip()
+    if not name or not position:
+        return False, None
+
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM shifts WHERE id = ?", (shift_id,)).fetchone()
+        if not row:
+            return False, None
+
+        warning = find_similar_worker_name(conn, name)
+        group_name = location_rules.classify_group(position)
+        worker_id = get_or_create_worker(conn, name)
+        location_id = get_or_create_location(conn, position, group_name)
+
+        try:
+            conn.execute(
+                "UPDATE shifts SET worker_id = ?, location_id = ? WHERE id = ?",
+                (worker_id, location_id, shift_id),
+            )
+        except sqlite3.IntegrityError:
+            # This edit now matches another shift already saved for the same
+            # worker/location/date -- the row being edited is a pure
+            # duplicate of it, so drop it instead of leaving two.
+            conn.execute("DELETE FROM shifts WHERE id = ?", (shift_id,))
+
+        conn.execute("DELETE FROM workers WHERE id NOT IN (SELECT DISTINCT worker_id FROM shifts)")
+        conn.execute("DELETE FROM locations WHERE id NOT IN (SELECT DISTINCT location_id FROM shifts)")
+        conn.commit()
+        return True, (name, warning) if warning else None
+    finally:
+        conn.close()
+
+
 def save_shifts(entries, shift_date, source_image=None):
     """entries: list of dicts {name, position, group (optional)}.
-    Returns count saved, count skipped (duplicates)."""
+    Returns (count saved, count skipped as duplicates, name_warnings) where
+    name_warnings is a list of (typed_name, similar_existing_name) pairs for
+    any name that looked like a near-miss spelling of an existing colleague,
+    so the caller can flag possible duplicates without blocking the save."""
     import location_rules
 
     conn = get_db()
     saved, skipped = 0, 0
+    name_warnings = []
     try:
         for e in entries:
             name = (e.get("name") or "").strip()
             position = (e.get("position") or "").strip()
             if not name or not position:
                 continue
+            similar = find_similar_worker_name(conn, name)
+            if similar:
+                name_warnings.append((name, similar))
             group_name = e.get("group") or location_rules.classify_group(position)
             worker_id = get_or_create_worker(conn, name)
             location_id = get_or_create_location(conn, position, group_name)
@@ -189,7 +299,7 @@ def save_shifts(entries, shift_date, source_image=None):
         conn.commit()
     finally:
         conn.close()
-    return saved, skipped
+    return saved, skipped, name_warnings
 
 
 def overview_stats():

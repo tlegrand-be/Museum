@@ -261,7 +261,7 @@ def review(token):
                 database.save_location_alias(raw, submitted)
 
         shift_date = request.form.get("shift_date") or data["shift_date"]
-        saved, skipped = database.save_shifts(entries, shift_date, data.get("source_image"))
+        saved, skipped, name_warnings = database.save_shifts(entries, shift_date, data.get("source_image"))
         pending_path.unlink(missing_ok=True)
 
         # The photo's only job was getting data into the ledger — once that's
@@ -275,10 +275,19 @@ def review(token):
         if skipped:
             msg += f" ({skipped} already existed for that date and were skipped.)"
         flash(msg, "success")
+        for typed, existing in name_warnings:
+            flash(
+                f'"{typed}" looks similar to existing colleague "{existing}" — '
+                f"check the Colleagues page in case this is a duplicate spelling.",
+                "warning",
+            )
         return redirect(url_for("index"))
 
     locations = [loc for loc in location_rules.ROSTER_ORDER if loc != "Musicorum"]
-    return render_template("review.html", token=token, data=data, locations=locations)
+    worker_names = database.all_worker_names()
+    return render_template(
+        "review.html", token=token, data=data, locations=locations, worker_names=worker_names,
+    )
 
 
 @app.route("/uploads")
@@ -299,6 +308,48 @@ def delete_upload():
     deleted = database.delete_upload(source_image, shift_date)
     flash(f"Removed {deleted} shift{'s' if deleted != 1 else ''} from that upload.", "success")
     return redirect(url_for("uploads_page"))
+
+
+@app.route("/uploads/edit", methods=["GET", "POST"])
+@admin_required
+def edit_upload():
+    source_image = request.values.get("source_image")
+    shift_date = request.values.get("shift_date")
+    if not source_image or not shift_date:
+        abort(400)
+
+    if request.method == "POST":
+        shift_ids = request.form.getlist("shift_id")
+        names = request.form.getlist("name")
+        positions = request.form.getlist("position")
+
+        updated = 0
+        name_warnings = []
+        for shift_id, name, position in zip(shift_ids, names, positions):
+            ok, warning = database.update_shift_entry(int(shift_id), name, position)
+            if ok:
+                updated += 1
+            if warning:
+                name_warnings.append(warning)
+
+        flash(f"Updated {updated} entr{'y' if updated == 1 else 'ies'}.", "success")
+        for typed, existing in name_warnings:
+            flash(
+                f'"{typed}" looks similar to existing colleague "{existing}" — '
+                f"check the Colleagues page in case this is a duplicate spelling.",
+                "warning",
+            )
+        return redirect(url_for("uploads_page"))
+
+    entries = database.get_shifts_for_upload(source_image, shift_date)
+    if not entries:
+        abort(404)
+    locations = [loc for loc in location_rules.ROSTER_ORDER if loc != "Musicorum"]
+    worker_names = database.all_worker_names()
+    return render_template(
+        "edit_upload.html", entries=entries, locations=locations,
+        source_image=source_image, shift_date=shift_date, worker_names=worker_names,
+    )
 
 
 @app.route("/uploads/image/<path:filename>")

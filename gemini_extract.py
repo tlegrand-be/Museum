@@ -378,17 +378,26 @@ def extract_roster(image_path):
         for row, bg in zip(rows, refined):
             row["background"] = bg
 
+    # Orange/red mean "not actually working this slot" on the physical roster,
+    # but a single-glance color read is exactly the kind of judgment call that
+    # gets confused (orange vs blue, etc.) -- so rather than silently dropping
+    # those rows here where a misread becomes an invisible, uncorrectable data
+    # loss, they're kept and marked. The Review screen shows the flagged color
+    # and pre-unchecks the row, so a human confirms or overrides it instead of
+    # trusting a single AI color call no one ever sees.
     cleaned = []
     skipped_marked = 0
     for row in rows:
-        if row["background"] in ("orange", "red"):
+        flagged = row["background"] in ("orange", "red")
+        if flagged:
             skipped_marked += 1
-            continue
         position = location_rules.normalize_location_label(row["position_raw"])
         cleaned.append({
             "name": row["name"],
             "position": position or "Unknown",
             "raw_position": row["position_raw"],
+            "background": row["background"],
+            "flagged_skip": flagged,
         })
 
     entries = _dedupe_keep_first(cleaned)

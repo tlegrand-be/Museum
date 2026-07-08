@@ -205,6 +205,7 @@ a { color: inherit; text-decoration: none; }
 }
 .flash.success { background: var(--panel-bg); border-color: var(--heading-color); color: var(--heading-color); }
 .flash.error { background: var(--panel-bg); border-color: var(--rust); color: var(--rust); }
+.flash.warning { background: var(--panel-bg); border-color: var(--brass); color: var(--charcoal); }
 
 /* Plaque cards - the signature element */
 .plaque {
@@ -388,6 +389,24 @@ form.upload-form input[type="text"] {
   font-family: 'Inter', sans-serif;
   font-size: 14px;
   background: #fff;
+}
+
+/* Rows Gemini flagged as orange/red (i.e. "not scheduled this slot") on the
+   roster photo -- kept visible and unchecked-by-default rather than dropped,
+   since a single-glance color read is exactly the kind of call that gets
+   confused between orange/blue/yellow and needs a human to confirm. Uses the
+   literal roster colors, not theme variables, since these mirror the sheet's
+   own physical color coding rather than app UI chrome. */
+.review-table tr.row-flag-orange td { background: rgba(201, 123, 74, 0.14); }
+.review-table tr.row-flag-red td { background: rgba(176, 52, 42, 0.14); }
+.review-table tr.row-flag-orange:hover td { background: rgba(201, 123, 74, 0.22); }
+.review-table tr.row-flag-red:hover td { background: rgba(176, 52, 42, 0.22); }
+.flag-note {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+  margin-top: 4px;
 }
 
 /* Shared form field styling — any label/input pair outside .upload-form */
