@@ -91,13 +91,19 @@ one cell (do not defer color-reading to a later pass):
    colors, prefer describing what you literally see over what you expect a
    break-placeholder to look like.
 
-PART D — Report column_bbox: a single bounding box, as [ymin, xmin, ymax, xmax]
-in the 0-1000 normalized coordinate system (0,0 is the image's top-left corner,
-1000,1000 is its bottom-right corner), that tightly frames ONLY that same first
-time-slot column's cells across every row of the main grid — from just below
-its header down to the bottom of the last row, and from that column's left
-border to its right border. Do not include the "pause/pauze" column or the
-next time-slot column in this box.
+PART D — Report two bounding boxes, both as [ymin, xmin, ymax, xmax] in the
+0-1000 normalized coordinate system (0,0 is the image's top-left corner,
+1000,1000 is its bottom-right corner):
+- "column_bbox": tightly frames ONLY that same first time-slot column's cells
+  across every row of the main grid — from just below its header down to the
+  bottom of the last row, and from that column's left border to its right
+  border. Do not include the "pause/pauze" column or the next time-slot
+  column in this box.
+- "row_bbox": tightly frames the FULL WIDTH of every row of the main grid,
+  from the LEFT border of the "bewakingspost" location-label column, across
+  the "pause/pauze" column, through to the RIGHT border of that same first
+  time-slot column — i.e. wider than column_bbox, showing each row's location
+  label and extracted name side by side. Same top/bottom extent as column_bbox.
 
 Return ONLY a single JSON object, nothing else. No markdown fences, no commentary.
 
@@ -110,7 +116,8 @@ Format exactly like this:
   "shifts": [
     {"name": "<person's name>", "position": "<location/row label>", "background": "plain|yellow|blue|green|orange|red|other"}
   ],
-  "column_bbox": [<ymin>, <xmin>, <ymax>, <xmax>]
+  "column_bbox": [<ymin>, <xmin>, <ymax>, <xmax>],
+  "row_bbox": [<ymin>, <xmin>, <ymax>, <xmax>]
 }
 """
 
@@ -135,6 +142,32 @@ break-placeholder to look like.
 Return ONLY a JSON array of exactly {len(ordered_labels)} strings, in the same
 order as the list above, nothing else. No markdown fences, no commentary.
 Example: ["plain", "orange", "red"]
+"""
+
+
+def _build_position_recheck_prompt(rows):
+    numbered = "\n".join(
+        f'{i + 1}. name="{r["name"]}", first read as location="{r["position_raw"] or "?"}"'
+        for i, r in enumerate(rows)
+    )
+    return f"""This image is a cropped, zoomed-in view of one museum staff roster
+grid, showing each row's FULL width: the location/post label (leftmost column),
+a break-time column (ignore it), and the first time-slot column (rightmost,
+holding a person's name) — one row per line, top to bottom. It contains
+exactly {len(rows)} rows, top to bottom, corresponding in order to these
+shifts already read from a full-page view of the same sheet — but on that
+earlier, zoomed-out pass, a name may have been paired with the location from
+the row above or below its actual one:
+{numbered}
+
+For each row, in this exact top-to-bottom order, look at THIS crop only and
+report the location/post label printed on the SAME line as that row's name —
+do not let your eyes drift to the row above or below. Report the label
+exactly as printed on the sheet (do not translate or normalize it).
+
+Return ONLY a JSON array of exactly {len(rows)} strings, in the same order
+as the list above, nothing else. No markdown fences, no commentary.
+Example: ["CT Ancien", "CT Moderne", "Vestiaire"]
 """
 
 
@@ -227,6 +260,70 @@ def _recheck_colors(client, image_bytes, column_bbox, rows, image_name):
         return None
 
     return [str(c).strip().lower() for c in colors]
+
+
+def _recheck_positions(client, image_bytes, row_bbox, rows, image_name):
+    """Ask Gemini a second, dedicated question re-reading each row's location
+    label from a cropped, upscaled image spanning the location column through
+    the first time-slot column together, since a single full-page glance can
+    misattribute a name to the row above or below its actual one (e.g. mixing
+    up two visually adjacent rows like CT Moderne/CT Ancien). Returns a list
+    of raw position strings aligned with `rows`, or None if the recheck
+    couldn't be performed -- callers should then fall back to each row's own
+    first-pass position guess."""
+    if not rows:
+        return None
+    if not (isinstance(row_bbox, list) and len(row_bbox) == 4):
+        logger.warning("POSITION_RECHECK_SKIPPED image=%s reason=no_bbox", image_name)
+        return None
+
+    try:
+        bbox = [float(v) for v in row_bbox]
+        crop_bytes = _crop_and_upscale_column(image_bytes, bbox)
+    except Exception as e:
+        logger.warning("POSITION_RECHECK_SKIPPED image=%s reason=crop_failed error=%s", image_name, e)
+        return None
+
+    prompt = _build_position_recheck_prompt(rows)
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[types.Part.from_bytes(data=crop_bytes, mime_type="image/png"), prompt],
+            config=types.GenerateContentConfig(max_output_tokens=2048),
+        )
+    except Exception as e:
+        logger.warning("POSITION_RECHECK_FAILED image=%s error=%s", image_name, e)
+        return None
+
+    raw_text = response.text or ""
+    logger.info("POSITION_RECHECK_RESPONSE image=%s raw_text=%r", image_name, raw_text)
+
+    text = raw_text.strip()
+    text = re.sub(r"^```(json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+
+    try:
+        positions = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            logger.warning("POSITION_RECHECK_PARSE_FAILED image=%s", image_name)
+            return None
+        try:
+            positions = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            logger.warning("POSITION_RECHECK_PARSE_FAILED image=%s", image_name)
+            return None
+
+    if not isinstance(positions, list) or len(positions) != len(rows):
+        logger.warning(
+            "POSITION_RECHECK_LENGTH_MISMATCH image=%s expected=%d got=%s",
+            image_name, len(rows), len(positions) if isinstance(positions, list) else type(positions).__name__,
+        )
+        return None
+
+    return [str(p).strip() for p in positions]
 
 
 def _get_client():
@@ -378,6 +475,21 @@ def extract_roster(image_path):
         for row, bg in zip(rows, refined):
             row["background"] = bg
 
+    # Likewise, a single full-page glance can misattribute a name to the row
+    # above or below its actual one -- e.g. mixing up two visually adjacent
+    # locations like CT Moderne/CT Ancien. Re-check each row's location label
+    # on a cropped, upscaled image spanning the location column through the
+    # first time-slot column together, so the name and its true location are
+    # read side by side instead of across the whole page width.
+    row_bbox = data.get("row_bbox") if isinstance(data, dict) else None
+    refined_positions = _recheck_positions(client, image_bytes, row_bbox, rows, image_name)
+    changed_positions = 0
+    if refined_positions is not None:
+        for row, pos in zip(rows, refined_positions):
+            if pos and pos.strip() != row["position_raw"]:
+                changed_positions += 1
+                row["position_raw"] = pos.strip()
+
     # Orange/red mean "not actually working this slot" on the physical roster,
     # but a single-glance color read is exactly the kind of judgment call that
     # gets confused (orange vs blue, etc.) -- so rather than silently dropping
@@ -404,9 +516,11 @@ def extract_roster(image_path):
 
     logger.info(
         "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s "
-        "extracted_time_slot=%s entry_count=%d skipped_marked=%d color_recheck=%s",
+        "extracted_time_slot=%s entry_count=%d skipped_marked=%d color_recheck=%s "
+        "position_recheck=%s positions_changed=%d",
         image_name, detected_date, grid_title, time_slot_columns,
         extracted_time_slot, len(entries), skipped_marked, refined is not None,
+        refined_positions is not None, changed_positions,
     )
 
     return {
