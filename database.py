@@ -480,6 +480,63 @@ def worker_detail(worker_id):
     }
 
 
+def create_worker(name):
+    """Add a brand-new colleague with no shifts yet -- e.g. someone starting
+    next week who should already show up in name pickers. Returns
+    (worker_id, None) on success, or (None, existing_name) if the name
+    already belongs to someone (exact, case-insensitive, or a close-enough
+    spelling), or (None, None) if the name is blank."""
+    name = name.strip()
+    if not name:
+        return None, None
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT name FROM workers WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
+        if row:
+            return None, row["name"]
+        similar = find_similar_worker_name(conn, name)
+        if similar:
+            return None, similar
+        cur = conn.execute("INSERT INTO workers (name) VALUES (?)", (name,))
+        conn.commit()
+        return cur.lastrowid, None
+    finally:
+        conn.close()
+
+
+def rename_worker(worker_id, new_name):
+    """Rename a colleague in place, e.g. fixing a typo -- if the corrected
+    name already belongs to a different existing colleague, merges this
+    colleague's shifts into that one instead (repointing each shift, and
+    dropping any that would become an exact duplicate) rather than leaving
+    two entries for the same person. Returns the worker_id the shifts now
+    live under (either this one, renamed, or the one merged into), or None
+    if new_name is blank."""
+    new_name = (new_name or "").strip()
+    if not new_name:
+        return None
+    conn = get_db()
+    try:
+        other = conn.execute(
+            "SELECT id FROM workers WHERE name = ? COLLATE NOCASE AND id != ?", (new_name, worker_id)
+        ).fetchone()
+        if other:
+            merge_into = other["id"]
+            for shift in conn.execute("SELECT id FROM shifts WHERE worker_id = ?", (worker_id,)).fetchall():
+                try:
+                    conn.execute("UPDATE shifts SET worker_id = ? WHERE id = ?", (merge_into, shift["id"]))
+                except sqlite3.IntegrityError:
+                    conn.execute("DELETE FROM shifts WHERE id = ?", (shift["id"],))
+            conn.execute("DELETE FROM workers WHERE id = ?", (worker_id,))
+            conn.commit()
+            return merge_into
+        conn.execute("UPDATE workers SET name = ? WHERE id = ?", (new_name, worker_id))
+        conn.commit()
+        return worker_id
+    finally:
+        conn.close()
+
+
 def delete_worker(worker_id):
     """Delete a colleague entirely, along with every shift of theirs (the
     shifts.worker_id FK is ON DELETE CASCADE) -- e.g. someone who was OCR'd

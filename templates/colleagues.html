@@ -4,6 +4,16 @@
 
 <h1 style="margin-bottom: 24px;">Colleagues</h1>
 
+{% if is_admin %}
+<div class="plaque" style="margin-bottom: 24px;">
+  <div class="section-title" style="margin-bottom: 12px;">Add a colleague</div>
+  <form method="post" action="{{ url_for('add_worker') }}" class="note-quick-add">
+    <input type="text" name="name" placeholder="Full name" required>
+    <button class="btn brass" type="submit">Add</button>
+  </form>
+</div>
+{% endif %}
+
 {% if workers | length == 0 %}
 <div class="plaque empty-state"><p>No colleagues logged yet. Upload a roster to get started.</p></div>
 {% else %}

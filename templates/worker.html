@@ -9,10 +9,17 @@
     <p style="opacity:0.7; margin-bottom: 24px;">{{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged</p>
   </div>
   {% if is_admin %}
-  <form method="post" action="{{ url_for('delete_worker', worker_id=detail.worker.id) }}"
-        onsubmit="return confirm('Remove {{ detail.worker.name }} and all {{ detail.total_shifts }} of their shift(s) from the ledger? This cannot be undone.');">
-    <button class="btn danger" type="submit" style="padding:8px 14px; font-size:11px;">Delete colleague</button>
-  </form>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <form method="post" action="{{ url_for('rename_worker', worker_id=detail.worker.id) }}" style="display:flex; gap:6px;">
+      <input type="text" name="name" value="{{ detail.worker.name }}" required
+             style="width:180px; padding:8px 10px; font-size:12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter', sans-serif;">
+      <button class="btn ghost" type="submit" style="padding:8px 14px; font-size:11px;">Fix name</button>
+    </form>
+    <form method="post" action="{{ url_for('delete_worker', worker_id=detail.worker.id) }}"
+          onsubmit="return confirm('Remove {{ detail.worker.name }} and all {{ detail.total_shifts }} of their shift(s) from the ledger? This cannot be undone.');">
+      <button class="btn danger" type="submit" style="padding:8px 14px; font-size:11px;">Delete colleague</button>
+    </form>
+  </div>
   {% endif %}
 </div>
 

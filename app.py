@@ -377,6 +377,25 @@ def colleagues_page():
     return render_template("colleagues.html", workers=stats["workers"])
 
 
+@app.route("/colleagues/add", methods=["POST"])
+@admin_required
+def add_worker():
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Please enter a name.", "error")
+        return redirect(url_for("colleagues_page"))
+    worker_id, conflict = database.create_worker(name)
+    if worker_id is None:
+        flash(
+            f'A colleague named "{conflict}" already exists (or is very close to it) -- '
+            'use that entry, or rename it first if this is genuinely a different person.',
+            "error",
+        )
+        return redirect(url_for("colleagues_page"))
+    flash(f'Added "{name}".', "success")
+    return redirect(url_for("worker_page", worker_id=worker_id))
+
+
 @app.route("/locations")
 def locations_page():
     stats = database.overview_stats()
@@ -393,6 +412,26 @@ def worker_page(worker_id):
         "worker.html", detail=detail, locations=locations,
         worker_id_for_sidebar=worker_id, active_location_id=None,
     )
+
+
+@app.route("/worker/<int:worker_id>/rename", methods=["POST"])
+@admin_required
+def rename_worker(worker_id):
+    detail = database.worker_detail(worker_id)
+    if not detail:
+        abort(404)
+    new_name = request.form.get("name", "").strip()
+    if not new_name:
+        flash("Please enter a name.", "error")
+        return redirect(url_for("worker_page", worker_id=worker_id))
+    if new_name.lower() == detail["worker"]["name"].lower():
+        return redirect(url_for("worker_page", worker_id=worker_id))
+    result_id = database.rename_worker(worker_id, new_name)
+    if result_id != worker_id:
+        flash(f'Renamed to "{new_name}", merging with the existing colleague of that name.', "success")
+    else:
+        flash(f'Renamed to "{new_name}".', "success")
+    return redirect(url_for("worker_page", worker_id=result_id))
 
 
 @app.route("/worker/<int:worker_id>/delete", methods=["POST"])
