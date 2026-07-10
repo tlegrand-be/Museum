@@ -74,6 +74,45 @@ def init_db():
     conn.commit()
     conn.close()
     run_location_maintenance()
+    run_worker_maintenance()
+
+
+def _fix_worker_name(conn, old_name, canonical_name):
+    """Permanently correct a colleague's name spelled with a typo (e.g.
+    "CRANEN" -> "CRAENEN") to the intended spelling, merging into an
+    existing canonical-spelled colleague's shifts if one is already present
+    (same merge-then-drop-duplicates logic as the interactive rename_worker
+    below). No-op if old_name isn't currently a worker."""
+    old_row = conn.execute("SELECT id FROM workers WHERE name = ?", (old_name,)).fetchone()
+    if not old_row:
+        return
+    other = conn.execute(
+        "SELECT id FROM workers WHERE name = ? COLLATE NOCASE AND id != ?",
+        (canonical_name, old_row["id"]),
+    ).fetchone()
+    if other:
+        merge_into = other["id"]
+        for shift in conn.execute("SELECT id FROM shifts WHERE worker_id = ?", (old_row["id"],)).fetchall():
+            try:
+                conn.execute("UPDATE shifts SET worker_id = ? WHERE id = ?", (merge_into, shift["id"]))
+            except sqlite3.IntegrityError:
+                conn.execute("DELETE FROM shifts WHERE id = ?", (shift["id"],))
+        conn.execute("DELETE FROM workers WHERE id = ?", (old_row["id"],))
+    else:
+        conn.execute("UPDATE workers SET name = ? WHERE id = ?", (canonical_name, old_row["id"]))
+
+
+def run_worker_maintenance():
+    """Idempotent colleague-name cleanup that runs on every startup, same as
+    run_location_maintenance -- so a spelling correction self-heals
+    already-saved rows after a git pull + reload, with no manual database
+    access needed."""
+    conn = get_db()
+    try:
+        _fix_worker_name(conn, "CRANEN", "CRAENEN")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _merge_location_id(conn, old_id, canonical_id):
