@@ -73,6 +73,86 @@ def init_db():
         conn.execute("ALTER TABLE locations ADD COLUMN group_name TEXT NOT NULL DEFAULT 'Other'")
     conn.commit()
     conn.close()
+    run_location_maintenance()
+
+
+def _merge_location_id(conn, old_id, canonical_id):
+    """Move every shift off `old_id` onto `canonical_id`, then drop the
+    now-empty `old_id` location row. A shift that would become an exact
+    duplicate of one already on the canonical location is dropped instead of
+    moved, same as rename_worker does for colleagues."""
+    if old_id == canonical_id:
+        return
+    for shift in conn.execute("SELECT id FROM shifts WHERE location_id = ?", (old_id,)).fetchall():
+        try:
+            conn.execute("UPDATE shifts SET location_id = ? WHERE id = ?", (canonical_id, shift["id"]))
+        except sqlite3.IntegrityError:
+            conn.execute("DELETE FROM shifts WHERE id = ?", (shift["id"],))
+    conn.execute("DELETE FROM locations WHERE id = ?", (old_id,))
+
+
+def _merge_case_variants(conn, canonical_name):
+    """Fold every location row that's a case/whitespace variant of
+    canonical_name (e.g. "MUSICORUM" vs "Musicorum", saved as two separate
+    rows because a manual edit bypassed OCR normalization) into one row
+    spelled exactly canonical_name."""
+    import location_rules
+
+    target = canonical_name.strip().lower()
+    rows = [
+        r for r in conn.execute("SELECT id, name FROM locations").fetchall()
+        if r["name"].strip().lower() == target
+    ]
+    if len(rows) <= 1 and (not rows or rows[0]["name"] == canonical_name):
+        return
+    canonical_row = next((r for r in rows if r["name"] == canonical_name), None)
+    canonical_id = canonical_row["id"] if canonical_row else get_or_create_location(
+        conn, canonical_name, location_rules.classify_group(canonical_name)
+    )
+    for row in rows:
+        _merge_location_id(conn, row["id"], canonical_id)
+
+
+def _fold_location(conn, old_name, canonical_name):
+    """Permanently fold one specific legacy location name into another --
+    e.g. after "Salle 52" got merged into "Balat 52-53-54" as a naming rule --
+    moving its shifts across and dropping the now-empty old row. Only
+    existing exact-name rows are touched; a no-op if old_name isn't present."""
+    import location_rules
+
+    old_row = conn.execute("SELECT id FROM locations WHERE name = ?", (old_name,)).fetchone()
+    if not old_row:
+        return
+    canonical_id = get_or_create_location(conn, canonical_name, location_rules.classify_group(canonical_name))
+    _merge_location_id(conn, old_row["id"], canonical_id)
+
+
+def _sync_location_groups(conn):
+    """Recompute every location's wing from its current name via
+    classify_group(), correcting any group_name stored under an older wing
+    name/definition (e.g. a wing that got renamed after the location was
+    first saved)."""
+    import location_rules
+
+    for row in conn.execute("SELECT id, name, group_name FROM locations").fetchall():
+        correct = location_rules.classify_group(row["name"])
+        if row["group_name"] != correct:
+            conn.execute("UPDATE locations SET group_name = ? WHERE id = ?", (correct, row["id"]))
+
+
+def run_location_maintenance():
+    """Idempotent location cleanup that runs on every startup, same as the
+    schema migration above -- so a naming-rule change or wing rename in the
+    code self-heals already-saved rows after a git pull + reload, with no
+    manual database access needed."""
+    conn = get_db()
+    try:
+        _merge_case_variants(conn, "Musicorum")
+        _fold_location(conn, "Salle 52", "Balat 52-53-54")
+        _sync_location_groups(conn)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_or_create_worker(conn, name):
