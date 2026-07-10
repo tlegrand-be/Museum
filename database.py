@@ -511,10 +511,7 @@ def worker_group_breakdown():
         per_worker.setdefault(r["worker"], {g: 0 for g in location_rules.GROUP_ORDER})
         per_worker[r["worker"]][r["grp"]] = r["c"]
 
-    # Sort workers by total shift count, descending
-    ordered_names = sorted(
-        per_worker.keys(), key=lambda n: -sum(per_worker[n].values())
-    )
+    ordered_names = sorted(per_worker.keys(), key=lambda n: n.lower())
 
     return {
         "labels": ordered_names,
