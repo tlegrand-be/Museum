@@ -149,6 +149,8 @@ def run_location_maintenance():
     try:
         _merge_case_variants(conn, "Musicorum")
         _fold_location(conn, "Salle 52", "Balat 52-53-54")
+        _fold_location(conn, "Balat 51-53-54", "Balat 52-53-54")
+        _fold_location(conn, "Balat 7-8-9", "Balat 55-7-8-9")
         _sync_location_groups(conn)
         conn.commit()
     finally:
