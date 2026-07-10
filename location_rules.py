@@ -84,7 +84,7 @@ RENAME_RULES = [
     ("mmm +3", "Magritte +3"),
     ("mmm+3", "Magritte +3"),
 
-    # --- OUTSIDERS wing ---
+    # --- ME/WI wing ---
     ("wiertz", "Wiertz"),
     ("meunier", "Meunier"),
 ]
@@ -219,7 +219,7 @@ def classify_group(location_name):
         return "FORUM"
 
     if n in {"wiertz", "meunier"} or "wiertz" in n or "meunier" in n:
-        return "OUTSIDERS"
+        return "ME/WI"
 
     return "Other"
 
@@ -228,8 +228,8 @@ GROUP_COLORS = {
     "FORUM": "#2E8B57",
     "BALAT": "#D93B2C",
     "MAGRITTE": "#5BC8E8",
-    "OUTSIDERS": "#8E5B9E",
+    "ME/WI": "#8E5B9E",
     "Other": "#8A8A78",
 }
 
-GROUP_ORDER = ["FORUM", "BALAT", "MAGRITTE", "OUTSIDERS", "Other"]
+GROUP_ORDER = ["FORUM", "BALAT", "MAGRITTE", "ME/WI", "Other"]
