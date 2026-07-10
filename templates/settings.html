@@ -30,7 +30,7 @@
 <div class="plaque" style="margin-bottom: 36px;">
   <form method="post" action="{{ url_for('set_colors') }}">
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 20px;">
-      {% for group in ['FORUM', 'BALAT', 'MAGRITTE', 'Other'] %}
+      {% for group in default_colors.keys() %}
       <div>
         <label style="display:flex; align-items:center; gap:10px; font-family:'JetBrains Mono',monospace; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:var(--heading-color);">
           <input type="color" name="color_{{ group }}" value="{{ colors.get(group, default_colors.get(group)) }}"

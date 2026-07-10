@@ -36,7 +36,7 @@ grid titled "WEEK-SEMAINE", or a WEEKEND sheet titled "PLANNING SALLE GARDIENNAG
 time-slot column boundaries. Do not assume which one this is — read the grid title and
 column headers directly off the sheet.
 
-The sheet has THREE distinct areas — pay close attention to only using the right one:
+The sheet has FOUR distinct areas — pay close attention to only using the right one:
 
 1. A header area with the date and a "responsable/verantwoordelijke" box listing
    supervisor names. IGNORE the supervisor names — they are never part of the grid.
@@ -45,7 +45,14 @@ The sheet has THREE distinct areas — pay close attention to only using the rig
    2 July 2026).
 2. A small separate mini-table near the top-left (rows starting with a time like
    "17.30 ..." or "18.30 ..."). IGNORE this mini-table — it is a separate schedule.
-3. The MAIN GRID, titled either "WEEK-SEMAINE" or "WEEKEND", which is what you must
+3. A small separate box near the top-right, next to (or below) the "responsable"
+   box, NOT part of the main grid, with exactly two rows labeled "WIERTZ" and
+   "MEUNIER" (each label printed outside/left of a bordered box), each paired with
+   one person's name inside that box on the same line. Either row may be blank if
+   uncovered that day, and it may not exist at all on some sheets. IGNORE it here
+   — it is read separately, in its own dedicated pass. Just don't merge it into
+   the main grid's shifts or into the responsable box.
+4. The MAIN GRID, titled either "WEEK-SEMAINE" or "WEEKEND", which is what you must
    read for shifts. It has:
    - A left column labeled "bewakingspost" listing location/post names — every row here,
      including "Coordinateur-Coördinateur" and "Mobile/Mobiel", is a valid location.
@@ -119,6 +126,25 @@ Format exactly like this:
   "column_bbox": [<ymin>, <xmin>, <ymax>, <xmax>],
   "row_bbox": [<ymin>, <xmin>, <ymax>, <xmax>]
 }
+"""
+
+
+def _build_outsider_recheck_prompt():
+    return """You are looking at a photo of a museum staff roster sheet. Somewhere
+near the top of the sheet — often to the right of, or below, the
+"responsable/verantwoordelijke" box — there may be a small box, separate from
+the main shift grid, with exactly two rows labeled "WIERTZ" and "MEUNIER",
+each paired with a person's name written next to it. Either row may be blank
+if uncovered that day, and this box may not exist at all on some sheets.
+
+Find that box. For each of its two rows, top to bottom, report the location
+label exactly as printed and the name next to it, with any checkmarks (√, ✓)
+or asterisks (*, **, ***) stripped off. If a row is blank, report its name as
+an empty string. If the box doesn't exist anywhere on this sheet, return an
+empty array.
+
+Return ONLY a JSON array, nothing else. No markdown fences, no commentary.
+Example: [{"location": "WIERTZ", "name": "STERCKX"}, {"location": "MEUNIER", "name": ""}]
 """
 
 
@@ -326,6 +352,59 @@ def _recheck_positions(client, image_bytes, row_bbox, rows, image_name):
     return [str(p).strip() for p in positions]
 
 
+def _recheck_outsiders(client, image_bytes, mime, image_name):
+    """The WIERTZ/MEUNIER box is small, sits outside the main grid, and is easy
+    for a single full-page glance to miss or garble (the first pass has been
+    seen reporting an empty box, or swapping a name for the other row's
+    label) -- ask a second, dedicated question, focused solely on this box,
+    against the full original image (its bbox is too small and unreliably
+    reported to crop to safely). Returns a list of {"location", "name"} dicts
+    (only for non-blank rows), or None if the recheck couldn't be performed."""
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime), _build_outsider_recheck_prompt()],
+            config=types.GenerateContentConfig(max_output_tokens=1024),
+        )
+    except Exception as e:
+        logger.warning("OUTSIDER_RECHECK_FAILED image=%s error=%s", image_name, e)
+        return None
+
+    raw_text = response.text or ""
+    logger.info("OUTSIDER_RECHECK_RESPONSE image=%s raw_text=%r", image_name, raw_text)
+
+    text = raw_text.strip()
+    text = re.sub(r"^```(json)?", "", text).strip()
+    text = re.sub(r"```$", "", text).strip()
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            logger.warning("OUTSIDER_RECHECK_PARSE_FAILED image=%s", image_name)
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            logger.warning("OUTSIDER_RECHECK_PARSE_FAILED image=%s", image_name)
+            return None
+
+    if not isinstance(parsed, list):
+        logger.warning("OUTSIDER_RECHECK_BAD_SHAPE image=%s", image_name)
+        return None
+
+    results = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        location = str(item.get("location", "")).strip()
+        name = _strip_stars(str(item.get("name", "")))
+        if location and name:
+            results.append({"location": location, "name": name})
+    return results
+
+
 def _get_client():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -512,15 +591,37 @@ def extract_roster(image_path):
             "flagged_skip": flagged,
         })
 
+    # The WIERTZ/MEUNIER box isn't part of the main grid at all, so it's read
+    # in its own dedicated pass over the full image (not extracted in the
+    # main call above -- see the OUTSIDER_RECHECK docstring for why).
+    outsider_shifts = _recheck_outsiders(client, image_bytes, mime, image_name) or []
+
+    outsider_count = 0
+    if isinstance(outsider_shifts, list):
+        for item in outsider_shifts:
+            name = _strip_stars(str(item.get("name", "")))
+            raw_position = str(item.get("location", "")).strip()
+            if not name or not raw_position:
+                continue
+            position = location_rules.normalize_location_label(raw_position)
+            cleaned.append({
+                "name": name,
+                "position": position or "Unknown",
+                "raw_position": raw_position,
+                "background": "plain",
+                "flagged_skip": False,
+            })
+            outsider_count += 1
+
     entries = _dedupe_keep_first(cleaned)
 
     logger.info(
         "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s "
         "extracted_time_slot=%s entry_count=%d skipped_marked=%d color_recheck=%s "
-        "position_recheck=%s positions_changed=%d",
+        "position_recheck=%s positions_changed=%d outsider_count=%d",
         image_name, detected_date, grid_title, time_slot_columns,
         extracted_time_slot, len(entries), skipped_marked, refined is not None,
-        refined_positions is not None, changed_positions,
+        refined_positions is not None, changed_positions, outsider_count,
     )
 
     return {

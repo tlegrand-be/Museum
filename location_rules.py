@@ -83,6 +83,10 @@ RENAME_RULES = [
     ("mmm+2", "Magritte +2"),
     ("mmm +3", "Magritte +3"),
     ("mmm+3", "Magritte +3"),
+
+    # --- OUTSIDERS wing ---
+    ("wiertz", "Wiertz"),
+    ("meunier", "Meunier"),
 ]
 
 # The order these canonical locations appear on the physical roster sheet,
@@ -115,6 +119,8 @@ ROSTER_ORDER = [
     "Magritte +2",
     "Magritte +3",
     "Musicorum",
+    "Wiertz",
+    "Meunier",
 ]
 
 
@@ -212,6 +218,9 @@ def classify_group(location_name):
     if any(k in n for k in forum_keywords):
         return "FORUM"
 
+    if n in {"wiertz", "meunier"} or "wiertz" in n or "meunier" in n:
+        return "OUTSIDERS"
+
     return "Other"
 
 
@@ -219,7 +228,8 @@ GROUP_COLORS = {
     "FORUM": "#2E8B57",
     "BALAT": "#D93B2C",
     "MAGRITTE": "#5BC8E8",
+    "OUTSIDERS": "#8E5B9E",
     "Other": "#8A8A78",
 }
 
-GROUP_ORDER = ["FORUM", "BALAT", "MAGRITTE", "Other"]
+GROUP_ORDER = ["FORUM", "BALAT", "MAGRITTE", "OUTSIDERS", "Other"]
