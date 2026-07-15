@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import calendar
 from datetime import date, timedelta
 from functools import wraps
 from pathlib import Path
@@ -136,7 +137,7 @@ def index():
     group_chart = database.worker_group_breakdown()
     last_update = database.last_update()
     widgets = get_cookie_json("overview_widgets", settings_defs.DEFAULT_OVERVIEW_WIDGETS)
-    quick_notes = database.list_quick_notes()
+    quick_notes = database.list_quick_notes(limit=3)
     return render_template(
         "index.html", stats=stats, group_chart=group_chart,
         last_update=last_update, widgets=widgets, quick_notes=quick_notes,
@@ -277,7 +278,7 @@ def review(token):
         flash(msg, "success")
         return redirect(url_for("index"))
 
-    locations = [loc for loc in location_rules.ROSTER_ORDER if loc != "Musicorum"]
+    locations = list(location_rules.ROSTER_ORDER)
     worker_names = database.all_worker_names()
     return render_template(
         "review.html", token=token, data=data, locations=locations, worker_names=worker_names,
@@ -353,7 +354,7 @@ def edit_upload():
     entries = database.get_shifts_for_upload(source_image, shift_date)
     if not entries:
         abort(404)
-    locations = [loc for loc in location_rules.ROSTER_ORDER if loc != "Musicorum"]
+    locations = list(location_rules.ROSTER_ORDER)
     worker_names = database.all_worker_names()
     return render_template(
         "edit_upload.html", entries=entries, locations=locations,
@@ -399,7 +400,10 @@ def add_worker():
 @app.route("/locations")
 def locations_page():
     stats = database.overview_stats()
-    return render_template("locations.html", locations=stats["locations"])
+    wing_ranking = database.wing_worker_ranking()
+    return render_template(
+        "locations.html", locations=stats["locations"], wing_ranking=wing_ranking,
+    )
 
 
 @app.route("/worker/<int:worker_id>")
@@ -464,6 +468,50 @@ def location_page(location_id):
     if not detail:
         abort(404)
     return render_template("location.html", detail=detail)
+
+
+# ---------------- Plannings ----------------
+
+@app.route("/plannings")
+def plannings_page():
+    today = date.today()
+    try:
+        year = int(request.args.get("year", today.year))
+        month = int(request.args.get("month", today.month))
+    except (TypeError, ValueError):
+        year, month = today.year, today.month
+
+    # Navigating past Jan/Dec rolls into the next/previous year.
+    while month < 1:
+        month += 12
+        year -= 1
+    while month > 12:
+        month -= 12
+        year += 1
+
+    selected_day = request.args.get("day")
+    if selected_day:
+        try:
+            date.fromisoformat(selected_day)
+        except ValueError:
+            selected_day = None
+
+    weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
+    dates_with_shifts = database.dates_with_shifts_in_month(year, month)
+    day_entries = database.shifts_for_date(selected_day) if selected_day else None
+
+    prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
+    next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
+
+    return render_template(
+        "plannings.html",
+        year=year, month=month, month_name=calendar.month_name[month],
+        weeks=weeks, dates_with_shifts=dates_with_shifts,
+        selected_day=selected_day, day_entries=day_entries,
+        today_iso=today.isoformat(),
+        prev_year=prev_year, prev_month=prev_month,
+        next_year=next_year, next_month=next_month,
+    )
 
 
 # ---------------- Notes ----------------

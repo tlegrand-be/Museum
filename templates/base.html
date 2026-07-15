@@ -27,6 +27,7 @@
       <a href="{{ url_for('index') }}" class="{{ 'active' if request.endpoint == 'index' }}">Overview</a>
       <a href="{{ url_for('locations_page') }}" class="{{ 'active' if request.endpoint in ['locations_page', 'location_page'] }}">Locations</a>
       <a href="{{ url_for('colleagues_page') }}" class="{{ 'active' if request.endpoint in ['colleagues_page', 'worker_page', 'worker_location_page'] }}">Colleagues</a>
+      <a href="{{ url_for('plannings_page') }}" class="{{ 'active' if request.endpoint == 'plannings_page' }}">Plannings</a>
       <a href="{{ url_for('notes_page') }}" class="{{ 'active' if request.endpoint == 'notes_page' }}">Notes</a>
       <a href="{{ url_for('settings_page') }}" class="{{ 'active' if request.endpoint == 'settings_page' }}">Settings</a>
       <div class="app-sidebar-divider"></div>

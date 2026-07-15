@@ -281,7 +281,8 @@ def save_location_alias(raw_label, canonical):
 
 def list_uploads():
     """Every past upload batch (grouped by the source image file behind it),
-    newest first, with enough detail to identify and delete a bad one."""
+    most recent roster date first (not most recently uploaded) -- ties broken
+    by upload time so same-date batches still have a stable order."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -290,7 +291,7 @@ def list_uploads():
                FROM shifts
                WHERE source_image IS NOT NULL
                GROUP BY source_image, shift_date
-               ORDER BY uploaded_at DESC"""
+               ORDER BY shift_date DESC, uploaded_at DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -519,6 +520,63 @@ def worker_group_breakdown():
         "colors": location_rules.GROUP_COLORS,
         "data": {g: [per_worker[n][g] for n in ordered_names] for g in location_rules.GROUP_ORDER},
     }
+
+
+def wing_worker_ranking():
+    """For the three main wings, every colleague who's worked a shift there,
+    ranked by shift count in that wing (most frequent first). Used for the
+    "busiest by wing" chart+table at the top of the Locations page."""
+    wings = ("FORUM", "BALAT", "MAGRITTE")
+    conn = get_db()
+    rows = conn.execute(
+        f"""SELECT l.group_name AS wing, w.name AS worker, COUNT(*) c
+            FROM shifts s
+            JOIN workers w ON w.id = s.worker_id
+            JOIN locations l ON l.id = s.location_id
+            WHERE l.group_name IN ({','.join('?' * len(wings))})
+            GROUP BY l.group_name, w.id
+            ORDER BY c DESC""",
+        wings,
+    ).fetchall()
+    conn.close()
+
+    result = {w: [] for w in wings}
+    for r in rows:
+        result[r["wing"]].append({"worker": r["worker"], "count": r["c"]})
+    return result
+
+
+def dates_with_shifts_in_month(year, month):
+    """ISO date strings within (year, month) that have at least one shift
+    logged, for lighting up those squares on the Plannings calendar."""
+    conn = get_db()
+    prefix = f"{year:04d}-{month:02d}-"
+    rows = conn.execute(
+        "SELECT DISTINCT shift_date FROM shifts WHERE shift_date LIKE ?",
+        (prefix + "%",),
+    ).fetchall()
+    conn.close()
+    return {r["shift_date"] for r in rows}
+
+
+def shifts_for_date(shift_date):
+    """Every colleague/location pair scheduled on one date, roster-sheet
+    ordered by location, for the Plannings calendar's day view."""
+    import location_rules
+
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT w.name AS worker, l.name AS location, l.group_name AS area
+           FROM shifts s
+           JOIN workers w ON w.id = s.worker_id
+           JOIN locations l ON l.id = s.location_id
+           WHERE s.shift_date = ?""",
+        (shift_date,),
+    ).fetchall()
+    conn.close()
+    entries = [dict(r) for r in rows]
+    entries.sort(key=lambda e: (location_rules.roster_sort_key(e["location"]), e["worker"].lower()))
+    return entries
 
 
 def all_locations():
@@ -810,16 +868,21 @@ def add_quick_note(message):
     conn.close()
 
 
-def list_quick_notes():
+def list_quick_notes(limit=None):
     """Notes from the last 7 days, newest first. Also purges anything older
     while it's here — quick notes are meant to age out on their own, not
-    build up as a permanent record like the tagged Notes page does."""
+    build up as a permanent record like the tagged Notes page does. Pass
+    `limit` to cap how many are returned (e.g. the Overview panel only shows
+    the 3 latest)."""
     from datetime import datetime
 
     conn = get_db()
     conn.execute("DELETE FROM quick_notes WHERE created_at < datetime('now', '-7 days')")
     conn.commit()
-    rows = conn.execute("SELECT * FROM quick_notes ORDER BY created_at DESC").fetchall()
+    sql = "SELECT * FROM quick_notes ORDER BY created_at DESC"
+    if limit is not None:
+        sql += f" LIMIT {int(limit)}"
+    rows = conn.execute(sql).fetchall()
     conn.close()
 
     notes = []

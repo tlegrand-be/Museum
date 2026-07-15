@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Plannings — Roster Ledger{% endblock %}
+{% block content %}
+
+<h1 style="margin-bottom: 4px;">Plannings</h1>
+<p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
+  Click a day with a highlighted square to see who was scheduled and where.
+</p>
+
+<div class="calendar-toolbar">
+  <a class="calendar-nav-btn" href="{{ url_for('plannings_page', year=prev_year, month=prev_month) }}" title="Previous month">&larr;</a>
+  <div class="month-label">{{ month_name }} {{ year }}</div>
+  <a class="calendar-nav-btn" href="{{ url_for('plannings_page', year=next_year, month=next_month) }}" title="Next month">&rarr;</a>
+  <a class="calendar-today-btn" href="{{ url_for('plannings_page') }}">Today</a>
+</div>
+
+<div class="calendar-grid">
+  {% for wd in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
+  <div class="calendar-weekday">{{ wd }}</div>
+  {% endfor %}
+
+  {% for week in weeks %}
+    {% for day in week %}
+      {% set iso = day.isoformat() %}
+      {% set classes = ['calendar-day'] %}
+      {% if day.month != month %}{% set _ = classes.append('outside') %}{% endif %}
+      {% if iso in dates_with_shifts %}{% set _ = classes.append('has-data') %}{% endif %}
+      {% if iso == today_iso %}{% set _ = classes.append('is-today') %}{% endif %}
+      {% if iso == selected_day %}{% set _ = classes.append('is-selected') %}{% endif %}
+      {% if iso in dates_with_shifts %}
+      <a class="{{ classes | join(' ') }}" href="{{ url_for('plannings_page', year=year, month=month, day=iso) }}#day-detail">
+        <div class="day-num">{{ day.day }}</div>
+        <div class="day-dot"></div>
+      </a>
+      {% else %}
+      <div class="{{ classes | join(' ') }}">
+        <div class="day-num">{{ day.day }}</div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+</div>
+
+<div id="day-detail">
+  {% if selected_day %}
+  <div class="section-title">Schedule for {{ selected_day }}</div>
+  {% if day_entries %}
+  <table>
+    <thead>
+      <tr>
+        <th>Colleague</th>
+        <th>Location</th>
+        <th>Wing</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in day_entries %}
+      <tr>
+        <td>{{ e.worker }}</td>
+        <td>{{ e.location }}</td>
+        <td>
+          <span class="dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{{ group_colors.get(e.area, '#8A8A78') }}; margin-right:6px;"></span>
+          {{ e.area }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="plaque empty-state"><p>No shifts logged for this date.</p></div>
+  {% endif %}
+  {% else %}
+  <p class="day-detail-empty">Pick a highlighted day above to see its schedule.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

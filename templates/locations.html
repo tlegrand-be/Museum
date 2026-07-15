@@ -5,6 +5,82 @@
 <h1 style="margin-bottom: 4px;">Locations</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">Listed in the order they appear on the roster sheet.</p>
 
+{% set wings = ['FORUM', 'BALAT', 'MAGRITTE'] %}
+{% if wing_ranking and (wing_ranking.FORUM or wing_ranking.BALAT or wing_ranking.MAGRITTE) %}
+<div class="section-title">Busiest colleagues by wing</div>
+<div class="wing-rank-grid">
+  {% for wing in wings %}
+  <div class="plaque wing-rank-card">
+    <div class="wing-rank-header">
+      <span class="dot" style="background:{{ group_colors.get(wing, '#8A8A78') }};"></span>
+      {{ wing }}
+    </div>
+    {% if wing_ranking[wing] %}
+    <div class="wing-rank-chart">
+      <canvas id="wingRankChart{{ loop.index }}"></canvas>
+    </div>
+    <div class="wing-rank-table-wrap">
+      <table class="wing-rank-table">
+        <thead><tr><th style="width:30px;">#</th><th>Colleague</th><th style="text-align:right;">Shifts</th></tr></thead>
+        <tbody>
+          {% for row in wing_ranking[wing] %}
+          <tr>
+            <td class="rank">{{ loop.index }}</td>
+            <td>{{ row.worker }}</td>
+            <td style="text-align:right;">{{ row.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p style="opacity:0.6; font-size:13px; margin-top:8px;">No shifts logged in this wing yet.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+(function () {
+  const wingRanking = {{ wing_ranking | tojson }};
+  const groupColors = {{ group_colors | tojson }};
+  const wings = {{ wings | tojson }};
+  const MAX_BARS = 8;
+
+  wings.forEach((wing, i) => {
+    const canvas = document.getElementById('wingRankChart' + (i + 1));
+    if (!canvas) return;
+    const rows = (wingRanking[wing] || []).slice(0, MAX_BARS);
+    if (!rows.length) return;
+
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: rows.map(r => r.worker),
+        datasets: [{
+          data: rows.map(r => r.count),
+          backgroundColor: groupColors[wing],
+          borderRadius: 4,
+          barThickness: 14,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+          y: { ticks: { font: { size: 11 } } },
+        },
+      },
+    });
+  });
+})();
+</script>
+{% endif %}
+
+<div class="section-title">All locations</div>
 {% if locations | length == 0 %}
 <div class="plaque empty-state"><p>No locations logged yet. Upload a roster to get started.</p></div>
 {% else %}
