@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Compare colleagues — Roster Ledger{% endblock %}
+{% block content %}
+
+<a class="back-link" href="{{ url_for('colleagues_page') }}">&larr; Back to colleagues</a>
+<h1 style="margin-bottom: 6px;">Worked together</h1>
+{% set names = workers | map(attribute='name') | list %}
+<p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
+  Every date where <strong>{{ names[:-1] | join(', ') }}{{ ' and ' if names | length > 1 }}{{ names[-1] }}</strong>
+  all had a shift in the same wing — not necessarily the exact same post.
+</p>
+
+{% if shared | length == 0 %}
+<div class="plaque empty-state"><p>No shared wing shifts found for these colleagues.</p></div>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th style="width: 140px;">Date</th>
+      <th style="width: 140px;">Wing</th>
+      <th>Who was where</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in shared %}
+    <tr>
+      <td>{{ row.date }}</td>
+      <td>
+        <span class="dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{{ group_colors.get(row.wing, '#8A8A78') }}; margin-right:6px;"></span>
+        {{ row.wing }}
+      </td>
+      <td>
+        {% for e in row.entries %}
+        <span class="mono" style="display:inline-block; margin-right:14px;">{{ e.worker }} — {{ e.location }}</span>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

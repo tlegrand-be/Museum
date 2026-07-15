@@ -7,7 +7,18 @@
 
 {% set wings = ['FORUM', 'BALAT', 'MAGRITTE'] %}
 {% if wing_ranking and (wing_ranking.FORUM or wing_ranking.BALAT or wing_ranking.MAGRITTE) %}
-<div class="section-title">Busiest colleagues by wing</div>
+<div class="wing-rank-titlebar">
+  <div class="section-title" style="margin-bottom:0; border-bottom:none; padding-bottom:0;">Busiest colleagues by wing</div>
+  <div class="metric-toggle" id="metricToggle">
+    <button type="button" class="metric-toggle-btn active" data-metric="count">Shifts</button>
+    <button type="button" class="metric-toggle-btn" data-metric="percent">Attendance %</button>
+  </div>
+</div>
+<p style="opacity:0.7; margin: -8px 0 14px; font-size: 13px;">
+  "Attendance %" is how much of each colleague's own total shifts fell in that wing —
+  someone with only a handful of shifts, all in one wing, can outrank a colleague
+  with far more shifts spread across several wings.
+</p>
 <div class="wing-rank-grid">
   {% for wing in wings %}
   <div class="plaque wing-rank-card">
@@ -20,17 +31,16 @@
       <canvas id="wingRankChart{{ loop.index }}"></canvas>
     </div>
     <div class="wing-rank-table-wrap">
-      <table class="wing-rank-table">
-        <thead><tr><th style="width:30px;">#</th><th>Colleague</th><th style="text-align:right;">Shifts</th></tr></thead>
-        <tbody>
-          {% for row in wing_ranking[wing] %}
+      <table class="wing-rank-table" id="wingRankTable{{ loop.index }}">
+        <thead>
           <tr>
-            <td class="rank">{{ loop.index }}</td>
-            <td>{{ row.worker }}</td>
-            <td style="text-align:right;">{{ row.count }}</td>
+            <th style="width:30px;">#</th>
+            <th>Colleague</th>
+            <th style="text-align:right;">Shifts</th>
+            <th style="text-align:right;">Attendance</th>
           </tr>
-          {% endfor %}
-        </tbody>
+        </thead>
+        <tbody></tbody>
       </table>
     </div>
     {% else %}
@@ -46,36 +56,89 @@
   const groupColors = {{ group_colors | tojson }};
   const wings = {{ wings | tojson }};
   const MAX_BARS = 8;
+  let metric = 'count';
+  const charts = {};
 
-  wings.forEach((wing, i) => {
-    const canvas = document.getElementById('wingRankChart' + (i + 1));
+  function sortedRows(wing) {
+    return (wingRanking[wing] || []).slice().sort((a, b) => b[metric] - a[metric]);
+  }
+
+  function renderTable(wing, index) {
+    const tbody = document.querySelector('#wingRankTable' + index + ' tbody');
+    if (!tbody) return;
+    tbody.innerHTML = sortedRows(wing).map((row, i) => `
+      <tr>
+        <td class="rank">${i + 1}</td>
+        <td>${row.worker}</td>
+        <td style="text-align:right;">${row.count}</td>
+        <td style="text-align:right;">${row.percent}%</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderChart(wing, index) {
+    const canvas = document.getElementById('wingRankChart' + index);
     if (!canvas) return;
-    const rows = (wingRanking[wing] || []).slice(0, MAX_BARS);
+    const rows = sortedRows(wing).slice(0, MAX_BARS);
     if (!rows.length) return;
 
-    new Chart(canvas, {
+    const data = {
+      labels: rows.map(r => r.worker),
+      datasets: [{
+        data: rows.map(r => r[metric]),
+        backgroundColor: groupColors[wing],
+        borderRadius: 4,
+        barThickness: 14,
+      }],
+    };
+
+    if (charts[index]) {
+      charts[index].data = data;
+      charts[index].options.scales.x.ticks.callback = metric === 'percent' ? (v => v + '%') : undefined;
+      charts[index].update();
+      return;
+    }
+
+    charts[index] = new Chart(canvas, {
       type: 'bar',
-      data: {
-        labels: rows.map(r => r.worker),
-        datasets: [{
-          data: rows.map(r => r.count),
-          backgroundColor: groupColors[wing],
-          borderRadius: 4,
-          barThickness: 14,
-        }],
-      },
+      data: data,
       options: {
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } },
+          x: {
+            beginAtZero: true,
+            ticks: {
+              precision: 0,
+              font: { size: 10 },
+              callback: metric === 'percent' ? (v => v + '%') : undefined,
+            },
+          },
           y: { ticks: { font: { size: 11 } } },
         },
       },
     });
+  }
+
+  function renderAll() {
+    wings.forEach((wing, i) => {
+      renderTable(wing, i + 1);
+      renderChart(wing, i + 1);
+    });
+  }
+
+  document.querySelectorAll('.metric-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.metric === metric) return;
+      metric = btn.dataset.metric;
+      document.querySelectorAll('.metric-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+      renderAll();
+    });
   });
+
+  renderAll();
 })();
 </script>
 {% endif %}

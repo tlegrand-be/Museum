@@ -61,5 +61,16 @@
     {% endfor %}
   </tbody>
 </table>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  <a class="calendar-nav-btn {{ 'disabled' if page <= 1 }}"
+     href="{{ url_for('uploads_page', page=page - 1) if page > 1 else '#' }}" title="Previous page">&larr;</a>
+  <span class="pagination-label">Page {{ page }} of {{ total_pages }} &middot; {{ total_uploads }} upload{{ 's' if total_uploads != 1 else '' }}</span>
+  <a class="calendar-nav-btn {{ 'disabled' if page >= total_pages }}"
+     href="{{ url_for('uploads_page', page=page + 1) if page < total_pages else '#' }}" title="Next page">&rarr;</a>
+</div>
+{% endif %}
+
 {% endif %}
 {% endblock %}

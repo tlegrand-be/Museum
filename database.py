@@ -348,6 +348,66 @@ def all_worker_names():
         conn.close()
 
 
+def workers_by_ids(worker_ids):
+    """Look up colleague id/name pairs for a specific set of ids, in name
+    order -- used to validate and label a Colleagues comparison selection."""
+    worker_ids = [w for w in worker_ids if w]
+    if not worker_ids:
+        return []
+    conn = get_db()
+    placeholders = ",".join("?" * len(worker_ids))
+    rows = conn.execute(
+        f"SELECT id, name FROM workers WHERE id IN ({placeholders}) ORDER BY name COLLATE NOCASE",
+        worker_ids,
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def shared_wing_shifts(worker_ids):
+    """For 2+ colleagues, every date+wing where all of them had at least one
+    shift in that wing -- i.e. they worked the same wing together that day,
+    even if not the exact same post. Each result also lists which specific
+    location each of them was actually at. Most recent date first."""
+    from collections import defaultdict
+
+    worker_ids = [w for w in worker_ids if w]
+    if len(worker_ids) < 2:
+        return []
+
+    conn = get_db()
+    placeholders = ",".join("?" * len(worker_ids))
+    rows = conn.execute(
+        f"""SELECT s.shift_date, l.group_name AS wing, w.id AS worker_id,
+                   w.name AS worker, l.name AS location
+            FROM shifts s
+            JOIN locations l ON l.id = s.location_id
+            JOIN workers w ON w.id = s.worker_id
+            WHERE s.worker_id IN ({placeholders})""",
+        worker_ids,
+    ).fetchall()
+    conn.close()
+
+    by_key = defaultdict(list)
+    for r in rows:
+        by_key[(r["shift_date"], r["wing"])].append(
+            {"worker_id": r["worker_id"], "worker": r["worker"], "location": r["location"]}
+        )
+
+    needed = set(worker_ids)
+    results = []
+    for (shift_date, wing), entries in by_key.items():
+        present = {e["worker_id"] for e in entries}
+        if needed <= present:
+            results.append({
+                "date": shift_date,
+                "wing": wing,
+                "entries": sorted(entries, key=lambda e: e["worker"].lower()),
+            })
+    results.sort(key=lambda r: r["date"], reverse=True)
+    return results
+
+
 def update_shift_entry(shift_id, name, position, shift_date):
     """Repoint one already-saved shift at a corrected name, location, and/or
     date -- used from the "Modify" screen in Upload history, where the
@@ -524,12 +584,17 @@ def worker_group_breakdown():
 
 def wing_worker_ranking():
     """For the three main wings, every colleague who's worked a shift there,
-    ranked by shift count in that wing (most frequent first). Used for the
-    "busiest by wing" chart+table at the top of the Locations page."""
+    ranked by shift count in that wing (most frequent first). Each row also
+    carries that colleague's total shift count everywhere and the percentage
+    of their shifts that were in this wing -- e.g. someone with only 3 shifts
+    ever, all 3 in Balat, shows as "100%" there even though their raw count
+    is low, so a low-shift-count regular still stands out from someone who
+    merely covered the wing once or twice among many shifts elsewhere. Used
+    for the "busiest by wing" chart+table at the top of the Locations page."""
     wings = ("FORUM", "BALAT", "MAGRITTE")
     conn = get_db()
     rows = conn.execute(
-        f"""SELECT l.group_name AS wing, w.name AS worker, COUNT(*) c
+        f"""SELECT l.group_name AS wing, w.id AS worker_id, w.name AS worker, COUNT(*) c
             FROM shifts s
             JOIN workers w ON w.id = s.worker_id
             JOIN locations l ON l.id = s.location_id
@@ -538,11 +603,19 @@ def wing_worker_ranking():
             ORDER BY c DESC""",
         wings,
     ).fetchall()
+    totals = {
+        r["worker_id"]: r["c"]
+        for r in conn.execute("SELECT worker_id, COUNT(*) c FROM shifts GROUP BY worker_id").fetchall()
+    }
     conn.close()
 
     result = {w: [] for w in wings}
     for r in rows:
-        result[r["wing"]].append({"worker": r["worker"], "count": r["c"]})
+        total = totals.get(r["worker_id"], 0)
+        percent = round((r["c"] / total) * 100) if total else 0
+        result[r["wing"]].append({
+            "worker": r["worker"], "count": r["c"], "total": total, "percent": percent,
+        })
     return result
 
 

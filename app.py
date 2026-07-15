@@ -285,12 +285,24 @@ def review(token):
     )
 
 
+UPLOADS_PER_PAGE = 10
+
+
 @app.route("/uploads")
 def uploads_page():
-    uploads = database.list_uploads()
+    all_uploads = database.list_uploads()
+    total_pages = max(1, -(-len(all_uploads) // UPLOADS_PER_PAGE))
+    page = request.args.get("page", 1, type=int) or 1
+    page = min(max(page, 1), total_pages)
+
+    start = (page - 1) * UPLOADS_PER_PAGE
+    uploads = all_uploads[start:start + UPLOADS_PER_PAGE]
     for u in uploads:
         u["photo_available"] = bool(u.get("source_image")) and (UPLOAD_DIR / u["source_image"]).is_file()
-    return render_template("uploads.html", uploads=uploads)
+    return render_template(
+        "uploads.html", uploads=uploads, page=page, total_pages=total_pages,
+        total_uploads=len(all_uploads),
+    )
 
 
 @app.route("/uploads/delete", methods=["POST"])
@@ -395,6 +407,17 @@ def add_worker():
         return redirect(url_for("colleagues_page"))
     flash(f'Added "{name}".', "success")
     return redirect(url_for("worker_page", worker_id=worker_id))
+
+
+@app.route("/colleagues/compare")
+def compare_colleagues():
+    worker_ids = sorted(set(request.args.getlist("worker_id", type=int)))
+    workers = database.workers_by_ids(worker_ids)
+    if len(workers) < 2:
+        flash("Pick at least 2 colleagues to compare.", "error")
+        return redirect(url_for("colleagues_page"))
+    shared = database.shared_wing_shifts([w["id"] for w in workers])
+    return render_template("compare_colleagues.html", workers=workers, shared=shared)
 
 
 @app.route("/locations")

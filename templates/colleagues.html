@@ -2,7 +2,18 @@
 {% block title %}Colleagues — Roster Ledger{% endblock %}
 {% block content %}
 
-<h1 style="margin-bottom: 24px;">Colleagues</h1>
+<div class="colleagues-titlebar">
+  <h1>Colleagues</h1>
+  <button type="button" class="btn ghost" id="compareToggle">Compare colleagues</button>
+</div>
+
+<div class="compare-bar" id="compareBar" style="display:none;">
+  <span id="compareHint">Click 2 or more colleagues below, then compare.</span>
+  <span class="compare-bar-actions">
+    <a class="btn brass disabled" id="compareGo" href="#">Compare</a>
+    <button class="btn ghost" type="button" id="compareCancel">Cancel</button>
+  </span>
+</div>
 
 {% if is_admin %}
 <div class="plaque" style="margin-bottom: 24px;">
@@ -19,11 +30,74 @@
 {% else %}
 <div class="card-grid">
   {% for w in workers %}
-  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}">
+  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}">
     <div class="name">{{ w.name }}</div>
     <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
   </a>
   {% endfor %}
 </div>
 {% endif %}
+
+<script>
+(function () {
+  const compareToggle = document.getElementById('compareToggle');
+  const compareBar = document.getElementById('compareBar');
+  const compareHint = document.getElementById('compareHint');
+  const compareCancel = document.getElementById('compareCancel');
+  const compareGo = document.getElementById('compareGo');
+  const cards = document.querySelectorAll('.entity-card[data-worker-id]');
+  const compareUrl = "{{ url_for('compare_colleagues') }}";
+  let compareMode = false;
+  const selected = new Set();
+
+  function refresh() {
+    if (selected.size === 0) {
+      compareHint.textContent = 'Click 2 or more colleagues below, then compare.';
+    } else {
+      compareHint.textContent = selected.size + ' selected' + (selected.size < 2 ? ' — pick at least 2.' : '.');
+    }
+    compareGo.classList.toggle('disabled', selected.size < 2);
+    compareGo.href = compareUrl + '?' + [...selected].map(id => 'worker_id=' + id).join('&');
+  }
+
+  function exitCompareMode() {
+    compareMode = false;
+    compareBar.style.display = 'none';
+    selected.clear();
+    cards.forEach(c => c.classList.remove('selected'));
+  }
+
+  compareToggle.addEventListener('click', () => {
+    compareMode = !compareMode;
+    if (compareMode) {
+      compareBar.style.display = 'flex';
+      refresh();
+    } else {
+      exitCompareMode();
+    }
+  });
+
+  compareCancel.addEventListener('click', exitCompareMode);
+
+  cards.forEach(card => {
+    card.addEventListener('click', e => {
+      if (!compareMode) return;
+      e.preventDefault();
+      const id = card.dataset.workerId;
+      if (selected.has(id)) {
+        selected.delete(id);
+        card.classList.remove('selected');
+      } else {
+        selected.add(id);
+        card.classList.add('selected');
+      }
+      refresh();
+    });
+  });
+
+  compareGo.addEventListener('click', e => {
+    if (selected.size < 2) e.preventDefault();
+  });
+})();
+</script>
 {% endblock %}
