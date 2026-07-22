@@ -102,6 +102,35 @@ def _fix_worker_name(conn, old_name, canonical_name):
         conn.execute("UPDATE workers SET name = ? WHERE id = ?", (canonical_name, old_row["id"]))
 
 
+def _split_worker_by_wing(conn, name, wing, wing_name):
+    """One-time-effective correction for two real colleagues who were
+    conflated under a single name ("name") by past roster uploads: any shift
+    of theirs actually worked in the `wing` wing (e.g. "BALAT") belongs to a
+    different person, `wing_name`, not `name` -- move just those shifts
+    across, leaving the rest on `name`. Self-heals on every startup the same
+    way _fix_worker_name does, and is naturally idempotent: once every
+    `wing`-shift has already been moved over, there's nothing left to split
+    on a later run. No-op if `name` isn't currently a worker."""
+    row = conn.execute("SELECT id FROM workers WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
+    if not row:
+        return
+    worker_id = row["id"]
+    to_move = conn.execute(
+        """SELECT s.id FROM shifts s
+           JOIN locations l ON l.id = s.location_id
+           WHERE s.worker_id = ? AND l.group_name = ?""",
+        (worker_id, wing),
+    ).fetchall()
+    if not to_move:
+        return
+    target_id = get_or_create_worker(conn, wing_name)
+    for shift in to_move:
+        try:
+            conn.execute("UPDATE shifts SET worker_id = ? WHERE id = ?", (target_id, shift["id"]))
+        except sqlite3.IntegrityError:
+            conn.execute("DELETE FROM shifts WHERE id = ?", (shift["id"],))
+
+
 def run_worker_maintenance():
     """Idempotent colleague-name cleanup that runs on every startup, same as
     run_location_maintenance -- so a spelling correction self-heals
@@ -110,6 +139,10 @@ def run_worker_maintenance():
     conn = get_db()
     try:
         _fix_worker_name(conn, "CRANEN", "CRAENEN")
+        # GODART and GODARD were being conflated under one name -- any of
+        # their shifts in the Balat wing actually belong to GODARD, so split
+        # those across; everything else (other wings) stays under GODART.
+        _split_worker_by_wing(conn, "GODART", "BALAT", "GODARD")
         conn.commit()
     finally:
         conn.close()
@@ -218,13 +251,23 @@ def get_or_create_worker(conn, name):
 
 NAME_SIMILARITY_CUTOFF = 0.78
 
+# Pairs of real, distinct colleagues whose names are close enough in spelling
+# that the fuzzy match below would otherwise treat one as a typo of the other
+# and silently fold them together (e.g. "GODART" and "GODARD" differ by one
+# letter). Each pair is checked case-insensitively, in either order.
+KNOWN_DISTINCT_NAME_PAIRS = {
+    frozenset({"godart", "godard"}),
+}
+
 
 def find_similar_worker_name(conn, name):
     """If `name` doesn't already match an existing colleague (case-insensitively)
     but is a close spelling of one -- e.g. an OCR misread like "EKOFO" vs
     "EKORO" -- return that colleague's name. Used by get_or_create_worker to
     fold near-miss spellings into the existing colleague automatically.
-    Returns None if there's an exact match or no close-enough one."""
+    Returns None if there's an exact match, no close-enough one, or the pair
+    is in KNOWN_DISTINCT_NAME_PAIRS (two real people who just happen to have
+    similar-looking names)."""
     name = (name or "").strip()
     if not name:
         return None
@@ -234,7 +277,11 @@ def find_similar_worker_name(conn, name):
     if lname in lookup:
         return None
     match = difflib.get_close_matches(lname, lookup.keys(), n=1, cutoff=NAME_SIMILARITY_CUTOFF)
-    return lookup[match[0]] if match else None
+    if not match:
+        return None
+    if frozenset({lname, match[0]}) in KNOWN_DISTINCT_NAME_PAIRS:
+        return None
+    return lookup[match[0]]
 
 
 def get_or_create_location(conn, name, group_name="Other"):

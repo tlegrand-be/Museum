@@ -87,6 +87,11 @@ one cell (do not defer color-reading to a later pass):
 2. If the cell is empty, blank, hatched, or says "no need"/"-", skip that row — do not invent a name.
 3. Strip out checkmark symbols (√, ✓) — they are not part of the name.
 4. Strip out any asterisks (*, **, ***) next to a name — return just the bare name.
+4a. Read every letter of the name individually, especially the last one --
+    this roster has two DIFFERENT people named "GODART" and "GODARD" (last
+    letter T vs D), which look almost identical in handwriting. Report
+    exactly the last letter you see stroke-by-stroke; do not default to
+    whichever spelling you've seen more often.
 5. Read the location label from that row's left-most "bewakingspost" column, exactly as written.
 6. Report that SAME cell's background fill as one of exactly these words:
    "plain" (white/grey/no fill), "yellow", "blue", "green", "orange", "red", or "other".
