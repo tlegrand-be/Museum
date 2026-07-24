@@ -33,6 +33,7 @@
       <div class="app-sidebar-divider"></div>
       {% if is_admin %}
       <a href="{{ url_for('upload') }}" class="{{ 'active' if request.endpoint in ['upload', 'review'] }}">+ Upload roster</a>
+      <a href="{{ url_for('magritte_shifts_page') }}" class="{{ 'active' if request.endpoint == 'magritte_shifts_page' }}">Magritte Shifts</a>
       {% endif %}
       <a href="{{ url_for('uploads_page') }}" class="{{ 'active' if request.endpoint in ['uploads_page'] }}">Upload history</a>
       <a href="{{ url_for('export') }}">Export .xlsx</a>

@@ -19,6 +19,7 @@ import database
 import gemini_extract
 import excel_export
 import location_rules
+import magritte_shifts
 import settings_defs
 
 BASE_DIR = Path(__file__).parent
@@ -535,6 +536,47 @@ def plannings_page():
         prev_year=prev_year, prev_month=prev_month,
         next_year=next_year, next_month=next_month,
     )
+
+
+# ---------------- Magritte Shifts ----------------
+
+@app.route("/magritte-shifts")
+@admin_required
+def magritte_shifts_page():
+    shift_date = request.args.get("date") or date.today().isoformat()
+    try:
+        date.fromisoformat(shift_date)
+    except ValueError:
+        shift_date = date.today().isoformat()
+
+    coordinateur_slot = request.args.get("coordinateur_slot", 0, type=int)
+    if coordinateur_slot not in (0, 1):
+        coordinateur_slot = 0
+
+    entries = database.magritte_shifts_for_date(shift_date)
+    schedule = magritte_shifts.compute_break_schedule(entries, shift_date, coordinateur_slot)
+
+    prev_day = (date.fromisoformat(shift_date) - timedelta(days=1)).isoformat()
+    next_day = (date.fromisoformat(shift_date) + timedelta(days=1)).isoformat()
+
+    return render_template(
+        "magritte_shifts.html",
+        shift_date=shift_date, prev_day=prev_day, next_day=next_day,
+        coordinateur_slot=coordinateur_slot, schedule=schedule,
+        security_types=database.SECURITY_TYPES,
+    )
+
+
+@app.route("/magritte-shifts/security-type/<int:worker_id>", methods=["POST"])
+@admin_required
+def set_magritte_security_type(worker_id):
+    security_type = request.form.get("security_type") or None
+    shift_date = request.form.get("shift_date") or date.today().isoformat()
+    coordinateur_slot = request.form.get("coordinateur_slot", "0")
+    if security_type and security_type not in database.SECURITY_TYPES:
+        abort(400)
+    database.set_worker_security_type(worker_id, security_type)
+    return redirect(url_for("magritte_shifts_page", date=shift_date, coordinateur_slot=coordinateur_slot))
 
 
 # ---------------- Notes ----------------
