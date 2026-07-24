@@ -132,9 +132,36 @@ const datasets = groups.map(g => ({
   borderRadius: 2,
 }));
 
+const MOBILE_BREAKPOINT = 700;
+
+// On a narrow phone screen there isn't enough width per bar for rotated
+// names to avoid overlapping each other, so instead stagger them into two
+// rows -- alternating labels sit closer to / further from the axis -- which
+// reads fine straight (no rotation) and needs far less horizontal space.
+function wingXTicks() {
+  if (window.innerWidth <= MOBILE_BREAKPOINT) {
+    return {
+      font: { size: 10 },
+      autoSkip: false,
+      maxRotation: 0,
+      minRotation: 0,
+      callback: function (value, index) {
+        const label = this.getLabelForValue(value);
+        return index % 2 === 0 ? label : '\n' + label;
+      },
+    };
+  }
+  return {
+    font: { size: 10 },
+    autoSkip: false,
+    maxRotation: 60,
+    minRotation: labels.length > 10 ? 60 : 0,
+  };
+}
+
 const wingCanvas = document.getElementById('wingChart');
 if (wingCanvas) {
-  new Chart(wingCanvas, {
+  const wingChartInstance = new Chart(wingCanvas, {
     type: 'bar',
     data: { labels: labels, datasets: datasets },
     options: {
@@ -144,18 +171,19 @@ if (wingCanvas) {
         legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'JetBrains Mono', size: 11 } } },
       },
       scales: {
-        x: {
-          stacked: true,
-          ticks: {
-            font: { size: 10 },
-            autoSkip: false,
-            maxRotation: 60,
-            minRotation: labels.length > 10 ? 60 : 0,
-          }
-        },
+        x: { stacked: true, ticks: wingXTicks() },
         y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
       }
     }
+  });
+
+  let wingResizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(wingResizeTimer);
+    wingResizeTimer = setTimeout(() => {
+      wingChartInstance.options.scales.x.ticks = wingXTicks();
+      wingChartInstance.update();
+    }, 150);
   });
 }
 </script>
