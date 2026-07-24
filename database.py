@@ -20,8 +20,7 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS workers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            security_type TEXT
+            name TEXT UNIQUE NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS locations (
@@ -72,9 +71,6 @@ def init_db():
     existing_cols = [r["name"] for r in conn.execute("PRAGMA table_info(locations)")]
     if "group_name" not in existing_cols:
         conn.execute("ALTER TABLE locations ADD COLUMN group_name TEXT NOT NULL DEFAULT 'Other'")
-    worker_cols = [r["name"] for r in conn.execute("PRAGMA table_info(workers)")]
-    if "security_type" not in worker_cols:
-        conn.execute("ALTER TABLE workers ADD COLUMN security_type TEXT")
     conn.commit()
     conn.close()
     run_location_maintenance()
@@ -835,44 +831,6 @@ def rename_worker(worker_id, new_name):
         return worker_id
     finally:
         conn.close()
-
-
-SECURITY_TYPES = ("intern", "extern")
-
-
-def set_worker_security_type(worker_id, security_type):
-    """Set (or clear, if security_type is falsy) a colleague's fixed
-    intern/extern security designation, used to compute their Magritte lunch
-    break length and floor time."""
-    if security_type and security_type not in SECURITY_TYPES:
-        return False
-    conn = get_db()
-    try:
-        conn.execute(
-            "UPDATE workers SET security_type = ? WHERE id = ?",
-            (security_type or None, worker_id),
-        )
-        conn.commit()
-        return True
-    finally:
-        conn.close()
-
-
-def magritte_shifts_for_date(shift_date):
-    """Every colleague scheduled at a MAGRITTE-wing location on shift_date,
-    with their starting post and (if set) security type -- the raw roster
-    input for the Magritte Shifts break-schedule generator."""
-    conn = get_db()
-    rows = conn.execute(
-        """SELECT w.id AS worker_id, w.name AS worker, w.security_type, l.name AS location
-           FROM shifts s
-           JOIN workers w ON w.id = s.worker_id
-           JOIN locations l ON l.id = s.location_id
-           WHERE s.shift_date = ? AND l.group_name = 'MAGRITTE'""",
-        (shift_date,),
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 def delete_worker(worker_id):
