@@ -30,7 +30,7 @@
       {% if iso in dates_with_shifts %}
       <a class="{{ classes | join(' ') }}" href="{{ url_for('plannings_page', year=year, month=month, day=iso) }}#day-detail">
         <div class="day-num">{{ day.day }}</div>
-        <div class="day-count">{{ worker_counts.get(iso, 0) }}</div>
+        <div class="day-count">({{ worker_counts.get(iso, 0) }})</div>
       </a>
       {% else %}
       <div class="{{ classes | join(' ') }}">
