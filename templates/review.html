@@ -11,6 +11,8 @@
   <label for="shift_date">Date (auto-detected from the photo — edit if wrong)</label>
   <input type="date" id="shift_date" name="shift_date" value="{{ data.shift_date }}" required style="max-width: 220px;">
 
+  <button class="btn ghost" type="button" id="removeOrange" style="margin-top: 12px;">Remove orange-flagged names</button>
+
   <table class="review-table" style="margin-top: 24px;">
     <thead>
       <tr>
@@ -90,14 +92,23 @@ document.getElementById('addRow').addEventListener('click', () => {
   reviewRows.lastElementChild.querySelector('select[name="name"]').focus();
 });
 
-reviewRows.addEventListener('click', e => {
-  if (!e.target.classList.contains('remove-row')) return;
-  e.target.closest('tr').remove();
+function renumberRows() {
   // Re-number remaining "keep" checkbox values so they stay aligned with
   // the name/position arrays the server zips them against positionally.
   [...reviewRows.querySelectorAll('tr')].forEach((row, i) => {
     row.querySelector('input[name="keep"]').value = i;
   });
+}
+
+reviewRows.addEventListener('click', e => {
+  if (!e.target.classList.contains('remove-row')) return;
+  e.target.closest('tr').remove();
+  renumberRows();
+});
+
+document.getElementById('removeOrange').addEventListener('click', () => {
+  reviewRows.querySelectorAll('tr.row-flag-orange').forEach(row => row.remove());
+  renumberRows();
 });
 </script>
 {% endblock %}

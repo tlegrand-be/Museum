@@ -679,6 +679,21 @@ def dates_with_shifts_in_month(year, month):
     return {r["shift_date"] for r in rows}
 
 
+def worker_counts_in_month(year, month):
+    """Map of ISO date string -> number of distinct workers scheduled that
+    day, within (year, month), for the Plannings calendar squares."""
+    conn = get_db()
+    prefix = f"{year:04d}-{month:02d}-"
+    rows = conn.execute(
+        """SELECT shift_date, COUNT(DISTINCT worker_id) AS worker_count
+           FROM shifts WHERE shift_date LIKE ?
+           GROUP BY shift_date""",
+        (prefix + "%",),
+    ).fetchall()
+    conn.close()
+    return {r["shift_date"]: r["worker_count"] for r in rows}
+
+
 def shifts_for_date(shift_date):
     """Every colleague/location pair scheduled on one date, roster-sheet
     ordered by location, for the Plannings calendar's day view."""

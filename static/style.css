@@ -1098,12 +1098,11 @@ a.calendar-day.has-data:hover { background: rgba(56, 163, 232, 0.24); }
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--rust) 18%, transparent);
 }
 .calendar-day .day-num { font-weight: 600; }
-.calendar-day .day-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--brass);
-  margin-top: 3px;
+.calendar-day .day-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--brass);
+  margin-top: 2px;
 }
 
 @media (max-width: 700px) {

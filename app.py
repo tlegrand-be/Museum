@@ -521,6 +521,7 @@ def plannings_page():
 
     weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
     dates_with_shifts = database.dates_with_shifts_in_month(year, month)
+    worker_counts = database.worker_counts_in_month(year, month)
     day_entries = database.shifts_for_date(selected_day) if selected_day else None
 
     prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
@@ -530,6 +531,7 @@ def plannings_page():
         "plannings.html",
         year=year, month=month, month_name=calendar.month_name[month],
         weeks=weeks, dates_with_shifts=dates_with_shifts,
+        worker_counts=worker_counts,
         selected_day=selected_day, day_entries=day_entries,
         today_iso=today.isoformat(),
         prev_year=prev_year, prev_month=prev_month,
