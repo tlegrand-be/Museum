@@ -149,11 +149,11 @@
     }
 
     // ---- Colleague type-ahead ----
-    // Ranking: whole name starts with what's typed, then any word in it does
-    // ("van" -> "VAN UYTVEN", then "DE VANDER..."), then -- from 2 letters on,
-    // so a single letter doesn't list half the team -- anywhere in the name.
-    // Accents and case are ignored.
-    const fold = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    // Only matches on the START of a name: names starting with what's typed
+    // come first, then names where a later word does ("moor" -> "DE MOOR").
+    // Never matches mid-word ("van" doesn't find "BERIVAN"). Accents and case
+    // are ignored.
+    const fold = s => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
     const KNOWN = WORKER_NAMES.map(n => ({ name: n, key: fold(n), words: fold(n).split(/[\s\-']+/) }));
     const MAX_SUGGESTIONS = 8;
 
@@ -165,7 +165,6 @@
         let score;
         if (w.key.startsWith(q)) score = 0;
         else if (w.words.some(word => word.startsWith(q))) score = 1;
-        else if (q.length >= 2 && w.key.includes(q)) score = 2;
         else continue;
         scored.push([score, w.name]);
       }
