@@ -95,8 +95,8 @@ RENAME_RULES = [
 # or unrecognized location) is sorted alphabetically after all of these.
 ROSTER_ORDER = [
     "Entrée principale",
-    "Accueil groupes",
     "Forum",
+    "Accueil groupes",
     "CT Moderne",
     "CT Ancien",
     "Vestiaire",

@@ -38,7 +38,7 @@
     <tbody>
       {% for h in detail.history %}
       <tr>
-        <td class="mono">{{ h.shift_date }}</td>
+        <td class="mono">{{ h.shift_date | dmy }}</td>
         <td>{{ h.worker }}</td>
       </tr>
       {% endfor %}

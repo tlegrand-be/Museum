@@ -33,6 +33,11 @@
           <img src="{{ url_for('upload_image', filename=u.source_image) }}" alt="Roster photo"
                style="width:70px; height:70px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); display:block;">
         </a>
+        {% elif u.source_image == 'manual-entry' %}
+        <div title="Entered by hand on the Plannings page"
+             style="width:70px; height:70px; display:flex; align-items:center; justify-content:center; border-radius:var(--radius); border:1px solid var(--line); opacity:0.5; font-size:11px; text-align:center;">
+          manual
+        </div>
         {% else %}
         <div title="Photo removed after saving to keep server storage small"
              style="width:70px; height:70px; display:flex; align-items:center; justify-content:center; border-radius:var(--radius); border:1px solid var(--line); opacity:0.5; font-size:11px; text-align:center;">
@@ -40,16 +45,16 @@
         </div>
         {% endif %}
       </td>
-      <td>{{ u.shift_date }}</td>
+      <td>{{ u.shift_date | dmy }}</td>
       <td>{{ u.shift_count }} shift{{ 's' if u.shift_count != 1 else '' }}</td>
-      <td style="opacity:0.7;">{{ u.uploaded_at }}</td>
+      <td style="opacity:0.7;">{{ u.uploaded_at | dmy }}</td>
       <td>
         {% if is_admin %}
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
           <a class="btn ghost" style="padding:8px 14px; font-size:11px;"
              href="{{ url_for('edit_upload', source_image=u.source_image, shift_date=u.shift_date) }}">Modify</a>
           <form method="post" action="{{ url_for('delete_upload') }}"
-                onsubmit="return confirm('Delete all {{ u.shift_count }} shift(s) from this upload ({{ u.shift_date }})? This cannot be undone.');">
+                onsubmit="return confirm('Delete all {{ u.shift_count }} shift(s) from this upload ({{ u.shift_date | dmy }})? This cannot be undone.');">
             <input type="hidden" name="source_image" value="{{ u.source_image }}">
             <input type="hidden" name="shift_date" value="{{ u.shift_date }}">
             <button class="btn danger" type="submit" style="padding:8px 14px; font-size:11px;">Delete</button>

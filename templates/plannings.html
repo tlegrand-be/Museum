@@ -4,7 +4,8 @@
 
 <h1 style="margin-bottom: 4px;">Plannings</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
-  Click a day with a highlighted square to see who was scheduled and where.
+  Click a day with a highlighted square to see who was scheduled and where.{% if is_admin %}
+  Click an empty (white) day to fill in its planning by hand.{% endif %}
 </p>
 
 <div class="calendar-toolbar">
@@ -32,6 +33,10 @@
         <div class="day-num">{{ day.day }}</div>
         <div class="day-count">({{ worker_counts.get(iso, 0) }})</div>
       </a>
+      {% elif is_admin %}
+      <a class="{{ classes | join(' ') }}" href="{{ url_for('plannings_page', year=year, month=month, day=iso) }}#day-detail" title="Add a planning for {{ iso | dmy }}">
+        <div class="day-num">{{ day.day }}</div>
+      </a>
       {% else %}
       <div class="{{ classes | join(' ') }}">
         <div class="day-num">{{ day.day }}</div>
@@ -43,7 +48,7 @@
 
 <div id="day-detail">
   {% if selected_day %}
-  <div class="section-title">Schedule for {{ selected_day }}</div>
+  <div class="section-title">Schedule for {{ selected_day | dmy }}</div>
   {% if day_entries %}
   <table>
     <thead>
@@ -66,11 +71,105 @@
       {% endfor %}
     </tbody>
   </table>
+  {% elif is_admin %}
+  <p style="opacity:0.7; margin-bottom: 16px; font-size: 14px;">
+    Nothing logged for this date yet. Pick who worked at each location and save.
+    Locations left on "&mdash; nobody &mdash;" are skipped. Remove a location with
+    the &times;, or add one (or a second colleague at the same spot) below.
+  </p>
+  <form class="upload-form" method="post" action="{{ url_for('add_manual_planning') }}">
+    <input type="hidden" name="shift_date" value="{{ selected_day }}">
+    <table class="review-table">
+      <thead>
+        <tr>
+          <th>Location</th>
+          <th>Colleague</th>
+          <th style="width: 40px;"></th>
+        </tr>
+      </thead>
+      <tbody id="manualRows">
+        {% for loc in roster_locations %}
+        <tr>
+          <td><input type="hidden" name="position" value="{{ loc }}">{{ loc }}</td>
+          <td>
+            <select name="name">
+              <option value="" selected>&mdash; nobody &mdash;</option>
+              {% for n in worker_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+            </select>
+          </td>
+          <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;" title="Remove this location">&times;</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top: 12px;">
+      <input type="text" id="newLocation" list="knownLocations" placeholder="Location to add" style="max-width: 260px;">
+      <datalist id="knownLocations">
+        {% for loc in manual_locations %}<option value="{{ loc }}">{% endfor %}
+      </datalist>
+      <button class="btn ghost" type="button" id="addLocation">+ Add location</button>
+    </div>
+    <button class="btn brass" type="submit" style="margin-top: 24px;">Save planning</button>
+  </form>
+
+  <script>
+  (() => {
+    const rows = document.getElementById('manualRows');
+    const input = document.getElementById('newLocation');
+    const WORKER_NAMES = {{ worker_names | tojson }};
+    const ORDER = {{ manual_locations | tojson }};
+
+    function el(tag, props = {}, children = []) {
+      const node = Object.assign(document.createElement(tag), props);
+      children.forEach(c => node.append(c));
+      return node;
+    }
+
+    // Keep added locations in roster order, so the list still reads like
+    // the planning sheet; unknown (new) locations go at the end.
+    function rank(loc) {
+      const i = ORDER.indexOf(loc);
+      return i === -1 ? ORDER.length : i;
+    }
+
+    function addRow(loc) {
+      const select = el('select', { name: 'name' }, [
+        el('option', { value: '', textContent: '— nobody —', selected: true }),
+        ...WORKER_NAMES.map(n => el('option', { value: n, textContent: n })),
+      ]);
+      const tr = el('tr', {}, [
+        el('td', {}, [el('input', { type: 'hidden', name: 'position', value: loc }), loc]),
+        el('td', {}, [select]),
+        el('td', {}, [el('button', {
+          type: 'button', className: 'btn ghost remove-row', textContent: '×',
+          title: 'Remove this location', style: 'padding: 6px 10px;',
+        })]),
+      ]);
+      const after = [...rows.children].find(r => rank(r.querySelector('input[name="position"]').value) > rank(loc));
+      rows.insertBefore(tr, after || null);
+      select.focus();
+    }
+
+    document.getElementById('addLocation').addEventListener('click', () => {
+      const loc = input.value.trim();
+      if (!loc) { input.focus(); return; }
+      addRow(loc);
+      input.value = '';
+    });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('addLocation').click(); }
+    });
+    rows.addEventListener('click', e => {
+      if (e.target.classList.contains('remove-row')) e.target.closest('tr').remove();
+    });
+  })();
+  </script>
   {% else %}
   <div class="plaque empty-state"><p>No shifts logged for this date.</p></div>
   {% endif %}
   {% else %}
-  <p class="day-detail-empty">Pick a highlighted day above to see its schedule.</p>
+  <p class="day-detail-empty">Pick a highlighted day above to see its schedule{% if is_admin %}, or an empty day to add one{% endif %}.</p>
   {% endif %}
 </div>
 

@@ -24,7 +24,7 @@
   <tbody>
     {% for row in shared %}
     <tr>
-      <td>{{ row.date }}</td>
+      <td>{{ row.date | dmy }}</td>
       <td>
         <span class="dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{{ group_colors.get(row.wing, '#8A8A78') }}; margin-right:6px;"></span>
         {{ row.wing }}

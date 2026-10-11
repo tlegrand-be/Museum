@@ -3,7 +3,7 @@
 {% block content %}
 
 <a class="back-link" href="{{ url_for('uploads_page') }}">&larr; Back to upload history</a>
-<h1 style="margin-bottom: 6px;">Modify names — {{ shift_date }}</h1>
+<h1 style="margin-bottom: 6px;">Modify names — {{ shift_date | dmy }}</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
   Fix any name or location that was read wrong, remove a row entirely with the
   &times; if someone shouldn't have been included, or add someone Gemini

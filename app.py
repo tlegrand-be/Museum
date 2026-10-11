@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import json
 import calendar
@@ -64,6 +65,23 @@ def effective_group_colors():
         if k in colors and isinstance(v, str):
             colors[k] = v
     return colors
+
+
+def format_dmy(value):
+    """Render a stored ISO date ("YYYY-MM-DD", optionally followed by a
+    time) as dd/mm/yyyy, keeping any HH:MM part. Anything that doesn't look
+    like an ISO date is returned unchanged."""
+    if not value:
+        return value
+    s = str(value)
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?", s)
+    if not m:
+        return s
+    y, mo, d, hm = m.groups()
+    return f"{d}/{mo}/{y}" + (f" {hm}" if hm else "")
+
+
+app.jinja_env.filters["dmy"] = format_dmy
 
 
 @app.before_request
@@ -359,7 +377,7 @@ def edit_upload():
         if removed:
             parts.append(f"Removed {removed}.")
         if new_shift_date != shift_date:
-            parts.append(f"Date changed to {new_shift_date}.")
+            parts.append(f"Date changed to {format_dmy(new_shift_date)}.")
         flash(" ".join(parts) if parts else "No changes.", "success")
         return redirect(url_for("uploads_page"))
 
@@ -523,6 +541,12 @@ def plannings_page():
     dates_with_shifts = database.dates_with_shifts_in_month(year, month)
     worker_counts = database.worker_counts_in_month(year, month)
     day_entries = database.shifts_for_date(selected_day) if selected_day else None
+    # A day with nothing logged yet can be filled in by hand (admins only):
+    # pre-fill one row per known location in roster order.
+    manual_locations = list(location_rules.ROSTER_ORDER)
+    for loc in database.all_locations():
+        if loc["name"] not in manual_locations:
+            manual_locations.append(loc["name"])
 
     prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
     next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
@@ -533,10 +557,49 @@ def plannings_page():
         weeks=weeks, dates_with_shifts=dates_with_shifts,
         worker_counts=worker_counts,
         selected_day=selected_day, day_entries=day_entries,
+        manual_locations=manual_locations,
+        roster_locations=location_rules.ROSTER_ORDER,
+        worker_names=database.all_worker_names(),
         today_iso=today.isoformat(),
         prev_year=prev_year, prev_month=prev_month,
         next_year=next_year, next_month=next_month,
     )
+
+
+MANUAL_SOURCE = "manual-entry"
+
+
+@app.route("/plannings/manual", methods=["POST"])
+@admin_required
+def add_manual_planning():
+    shift_date = request.form.get("shift_date", "")
+    try:
+        day = date.fromisoformat(shift_date)
+    except ValueError:
+        abort(400)
+
+    names = request.form.getlist("name")
+    positions = request.form.getlist("position")
+    # Rows left on "-- nobody --" (or with a blank location) are just skipped.
+    entries = [
+        {"name": n.strip(), "position": p.strip()}
+        for n, p in zip(names, positions)
+        if n.strip() and p.strip()
+    ]
+
+    redirect_to = redirect(url_for(
+        "plannings_page", year=day.year, month=day.month, day=shift_date,
+    ) + "#day-detail")
+    if not entries:
+        flash("Pick at least one colleague before saving.", "error")
+        return redirect_to
+
+    saved, skipped = database.save_shifts(entries, shift_date, MANUAL_SOURCE)
+    msg = f"Saved {saved} shift{'s' if saved != 1 else ''} for {format_dmy(shift_date)}."
+    if skipped:
+        msg += f" ({skipped} duplicate{'s' if skipped != 1 else ''} skipped.)"
+    flash(msg, "success")
+    return redirect_to
 
 
 # ---------------- Notes ----------------

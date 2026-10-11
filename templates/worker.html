@@ -42,7 +42,7 @@
         <thead><tr><th>Date</th><th>Location</th></tr></thead>
         <tbody>
           {% for h in detail.history %}
-          <tr><td class="mono">{{ h.shift_date }}</td><td>{{ h.location }}</td></tr>
+          <tr><td class="mono">{{ h.shift_date | dmy }}</td><td>{{ h.location }}</td></tr>
           {% endfor %}
         </tbody>
       </table>

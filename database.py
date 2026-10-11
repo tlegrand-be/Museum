@@ -367,18 +367,21 @@ def delete_upload(source_image, shift_date):
 def get_shifts_for_upload(source_image, shift_date):
     """Every individual shift row from one upload batch, for the "Modify"
     screen -- this works even after the source photo has been deleted, since
-    it reads back off the shifts table rather than re-running OCR."""
+    it reads back off the shifts table rather than re-running OCR. Ordered
+    like the roster sheet (by location), not alphabetically by name."""
+    import location_rules
     conn = get_db()
     try:
         rows = conn.execute(
             """SELECT s.id, w.name, l.name AS position FROM shifts s
                JOIN workers w ON w.id = s.worker_id
                JOIN locations l ON l.id = s.location_id
-               WHERE s.source_image = ? AND s.shift_date = ?
-               ORDER BY w.name COLLATE NOCASE""",
+               WHERE s.source_image = ? AND s.shift_date = ?""",
             (source_image, shift_date),
         ).fetchall()
-        return [dict(r) for r in rows]
+        entries = [dict(r) for r in rows]
+        entries.sort(key=lambda e: (location_rules.roster_sort_key(e["position"]), e["name"].lower()))
+        return entries
     finally:
         conn.close()
 
@@ -736,7 +739,7 @@ def last_update():
     try:
         from datetime import datetime
         dt = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
-        return dt.strftime("%b %d, %Y — %H:%M")
+        return dt.strftime("%d/%m/%Y — %H:%M")
     except ValueError:
         return raw
 
@@ -1025,7 +1028,7 @@ def list_quick_notes(limit=None):
         note = dict(r)
         try:
             dt = datetime.strptime(note["created_at"], "%Y-%m-%d %H:%M:%S")
-            note["posted_at"] = dt.strftime("%b %d, %H:%M")
+            note["posted_at"] = dt.strftime("%d/%m/%Y %H:%M")
         except (ValueError, TypeError):
             note["posted_at"] = note["created_at"]
         notes.append(note)

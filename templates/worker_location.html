@@ -21,7 +21,7 @@
         <thead><tr><th>Date</th></tr></thead>
         <tbody>
           {% for d in detail.dates %}
-          <tr><td class="mono">{{ d }}</td></tr>
+          <tr><td class="mono">{{ d | dmy }}</td></tr>
           {% endfor %}
         </tbody>
       </table>

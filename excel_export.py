@@ -1,3 +1,4 @@
+from datetime import date
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -24,7 +25,11 @@ def build_export():
         cell.alignment = Alignment(horizontal="left")
 
     for row_idx, r in enumerate(rows, start=2):
-        ws.cell(row=row_idx, column=1, value=r["date"])
+        try:
+            date_cell = ws.cell(row=row_idx, column=1, value=date.fromisoformat(r["date"]))
+            date_cell.number_format = "DD/MM/YYYY"
+        except (TypeError, ValueError):
+            ws.cell(row=row_idx, column=1, value=r["date"])
         ws.cell(row=row_idx, column=2, value=r["worker"])
         ws.cell(row=row_idx, column=3, value=r["location"])
         ws.cell(row=row_idx, column=4, value=r["area"])
