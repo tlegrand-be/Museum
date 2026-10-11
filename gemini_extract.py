@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import colorsys
 import json
 import logging
 from datetime import date
@@ -49,9 +50,9 @@ The sheet has FOUR distinct areas — pay close attention to only using the righ
    box, NOT part of the main grid, with exactly two rows labeled "WIERTZ" and
    "MEUNIER" (each label printed outside/left of a bordered box), each paired with
    one person's name inside that box on the same line. Either row may be blank if
-   uncovered that day, and it may not exist at all on some sheets. IGNORE it here
-   — it is read separately, in its own dedicated pass. Just don't merge it into
-   the main grid's shifts or into the responsable box.
+   uncovered that day, and it may not exist at all on some sheets. Read it into
+   "outsiders" (see PART E) — never merge it into the main grid's shifts or into
+   the responsable box.
 4. The MAIN GRID, titled either "WEEK-SEMAINE" or "WEEKEND", which is what you must
    read for shifts. It has:
    - A left column labeled "bewakingspost" listing location/post names — every row here,
@@ -65,7 +66,7 @@ The sheet has FOUR distinct areas — pay close attention to only using the righ
      sometimes with a checkmark or asterisks, shaded with a background color
      (plain/grey, yellow, blue, green, orange, or red).
 
-Your job has three parts:
+Your job has five parts:
 
 PART A — Find the date. Read the date from the header area and convert it to ISO
 format YYYY-MM-DD. If you cannot find or are not confident about the date, set it to null.
@@ -77,8 +78,7 @@ PART B — Identify the grid. Read the MAIN GRID's title exactly as printed — 
 PART C — Extract shifts from the FIRST time-slot column only — the leftmost column
 whose header is a clock-time range, immediately after "pause/pauze". Ignore every
 other time-slot column to its right, even if it has names in it. For each row
-(location) in the main grid, in that one first column, in a single glance at that
-one cell (do not defer color-reading to a later pass):
+(location) in the main grid, in that one first column:
 
 1. Include EVERY name in that column, in reading order top to bottom — every single
    row, without exception, no matter how many rows the grid has. Do not stop early and
@@ -93,6 +93,9 @@ one cell (do not defer color-reading to a later pass):
     exactly the last letter you see stroke-by-stroke; do not default to
     whichever spelling you've seen more often.
 5. Read the location label from that row's left-most "bewakingspost" column, exactly as written.
+   Follow the row's horizontal line from the name cell straight left to its label —
+   rows are thin and close together, so do not let your eyes drift to the row above
+   or below (e.g. "CT Moderne" and "CT AA/OK" are adjacent and easy to swap).
 6. Report that SAME cell's background fill as one of exactly these words:
    "plain" (white/grey/no fill), "yellow", "blue", "green", "orange", "red", or "other".
    Read the actual fill of THIS cell, not the row's pause/pauze cell and not
@@ -103,19 +106,22 @@ one cell (do not defer color-reading to a later pass):
    colors, prefer describing what you literally see over what you expect a
    break-placeholder to look like.
 
-PART D — Report two bounding boxes, both as [ymin, xmin, ymax, xmax] in the
-0-1000 normalized coordinate system (0,0 is the image's top-left corner,
-1000,1000 is its bottom-right corner):
-- "column_bbox": tightly frames ONLY that same first time-slot column's cells
-  across every row of the main grid — from just below its header down to the
-  bottom of the last row, and from that column's left border to its right
-  border. Do not include the "pause/pauze" column or the next time-slot
-  column in this box.
-- "row_bbox": tightly frames the FULL WIDTH of every row of the main grid,
-  from the LEFT border of the "bewakingspost" location-label column, across
-  the "pause/pauze" column, through to the RIGHT border of that same first
-  time-slot column — i.e. wider than column_bbox, showing each row's location
-  label and extracted name side by side. Same top/bottom extent as column_bbox.
+7. Report "box": that name cell's bounding box, as [ymin, xmin, ymax, xmax] in
+   the 0-1000 normalized coordinate system (0,0 is the image's top-left corner,
+   1000,1000 its bottom-right). Frame just that one cell, border to border.
+
+PART D — Report "column_bbox": the bounding box, in the same 0-1000
+[ymin, xmin, ymax, xmax] format, that tightly frames ONLY that same first
+time-slot column's cells across every row of the main grid — from just below
+its header down to the bottom of the last row, and from that column's left
+border to its right border. Do not include the "pause/pauze" column or the
+next time-slot column in this box.
+
+PART E — The small WIERTZ/MEUNIER box described in area 3 above. For each of
+its two rows, top to bottom, report the location label exactly as printed and
+the name next to it, with checkmarks and asterisks stripped off. Read each name
+from the SAME line as its own label — do not swap the two. Leave out a row
+whose name is blank. If the box doesn't exist on this sheet, use an empty array.
 
 Return ONLY a single JSON object, nothing else. No markdown fences, no commentary.
 
@@ -126,288 +132,120 @@ Format exactly like this:
   "time_slot_columns": ["<column header 1>", "<column header 2>", ...],
   "extracted_time_slot": "<the exact header of the first time-slot column you extracted from>",
   "shifts": [
-    {"name": "<person's name>", "position": "<location/row label>", "background": "plain|yellow|blue|green|orange|red|other"}
+    {"name": "<person's name>", "position": "<location/row label>", "background": "plain|yellow|blue|green|orange|red|other", "box": [<ymin>, <xmin>, <ymax>, <xmax>]}
   ],
   "column_bbox": [<ymin>, <xmin>, <ymax>, <xmax>],
-  "row_bbox": [<ymin>, <xmin>, <ymax>, <xmax>]
+  "outsiders": [
+    {"location": "WIERTZ", "name": "<person's name>"}
+  ]
 }
 """
 
 
-def _build_outsider_recheck_prompt():
-    return """You are looking at a photo of a museum staff roster sheet. Somewhere
-near the top of the sheet — often to the right of, or below, the
-"responsable/verantwoordelijke" box — there may be a small box, separate from
-the main shift grid, with exactly two rows labeled "WIERTZ" and "MEUNIER",
-each paired with a person's name written next to it. Either row may be blank
-if uncovered that day, and this box may not exist at all on some sheets.
-
-Find that box. For each of its two rows, top to bottom, report the location
-label exactly as printed and the name next to it, with any checkmarks (√, ✓)
-or asterisks (*, **, ***) stripped off. If a row is blank, report its name as
-an empty string. If the box doesn't exist anywhere on this sheet, return an
-empty array.
-
-Return ONLY a JSON array, nothing else. No markdown fences, no commentary.
-Example: [{"location": "WIERTZ", "name": "STERCKX"}, {"location": "MEUNIER", "name": ""}]
-"""
-
-
-def _build_color_check_prompt(ordered_labels):
-    numbered = "\n".join(f"{i + 1}. {label}" for i, label in enumerate(ordered_labels))
-    return f"""This image is a cropped, zoomed-in view of ONLY the first time-slot
-column from a museum staff roster — one cell per row, top to bottom, nothing
-else in it. It contains exactly {len(ordered_labels)} cells, top to bottom,
-corresponding in order to these entries already read from the full sheet:
-{numbered}
-
-For each entry, in this exact top-to-bottom order, report that cell's
-background fill as one of exactly these words: "plain" (white/grey/no fill),
-"yellow", "blue", "green", "orange", "red", or "other". Orange means a warm
-salmon/peach/coral/tan fill — a pale or light blue fill must be reported as
-"blue", never "orange", they look different and must not be confused. Red
-means a distinct bright/deep red fill, different from orange. Look at
-each cell's actual fill directly; do not guess from what you'd expect a
-break-placeholder to look like.
-
-Return ONLY a JSON array of exactly {len(ordered_labels)} strings, in the same
-order as the list above, nothing else. No markdown fences, no commentary.
-Example: ["plain", "orange", "red"]
-"""
+# Background colors are read from the photo's pixels locally rather than by a
+# second Gemini call: the fills are flat printed colors that separate cleanly
+# by hue once the photo's color cast is removed. Measured on a real roster
+# photo (after white-balancing against the plain cells): plain ~0 saturation,
+# orange hue ~25, yellow ~54, green ~100, light blue ~204 (saturation ~0.17).
+PLAIN_MAX_SATURATION = 0.10
+HUE_BANDS = [            # (upper hue bound in degrees, color), checked in order
+    (12, "red"),
+    (40, "orange"),
+    (75, "yellow"),
+    (170, "green"),
+    (260, "blue"),
+    (330, "other"),
+    (360, "red"),
+]
+INK_MAX_BRIGHTNESS = 110  # darker pixels are handwriting/print, not the fill
 
 
-def _build_position_recheck_prompt(rows):
-    numbered = "\n".join(
-        f'{i + 1}. name="{r["name"]}", first read as location="{r["position_raw"] or "?"}"'
-        for i, r in enumerate(rows)
-    )
-    return f"""This image is a cropped, zoomed-in view of one museum staff roster
-grid, showing each row's FULL width: the location/post label (leftmost column),
-a break-time column (ignore it), and the first time-slot column (rightmost,
-holding a person's name) — one row per line, top to bottom. It contains
-exactly {len(rows)} rows, top to bottom, corresponding in order to these
-shifts already read from a full-page view of the same sheet — but on that
-earlier, zoomed-out pass, a name may have been paired with the location from
-the row above or below its actual one:
-{numbered}
-
-For each row, in this exact top-to-bottom order, look at THIS crop only and
-report the location/post label printed on the SAME line as that row's name —
-do not let your eyes drift to the row above or below. Report the label
-exactly as printed on the sheet (do not translate or normalize it).
-
-Return ONLY a JSON array of exactly {len(rows)} strings, in the same order
-as the list above, nothing else. No markdown fences, no commentary.
-Example: ["CT Ancien", "CT Moderne", "Vestiaire"]
-"""
-
-
-def _crop_and_upscale_column(image_bytes, bbox_norm, pad_frac=0.01, max_dim=2400):
-    """Crop the given normalized [ymin, xmin, ymax, xmax] (0-1000 scale) region
-    out of the full-resolution image and upscale it, so a follow-up color-only
-    Gemini call gets a much closer, higher-resolution look at just that one
-    column instead of trying to judge color from a single full-page glance."""
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    width, height = img.size
-    ymin, xmin, ymax, xmax = bbox_norm
-
-    left = max(0, (xmin / 1000.0) * width - width * pad_frac)
-    right = min(width, (xmax / 1000.0) * width + width * pad_frac)
-    top = max(0, (ymin / 1000.0) * height - height * pad_frac)
-    bottom = min(height, (ymax / 1000.0) * height + height * pad_frac)
-
+def _box_to_pixels(box, width, height):
+    """[ymin, xmin, ymax, xmax] on the 0-1000 scale -> (left, top, right,
+    bottom) pixel coordinates, or None if the box is malformed/degenerate."""
+    if not (isinstance(box, (list, tuple)) and len(box) == 4):
+        return None
+    try:
+        ymin, xmin, ymax, xmax = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    left, right = sorted((xmin / 1000.0 * width, xmax / 1000.0 * width))
+    top, bottom = sorted((ymin / 1000.0 * height, ymax / 1000.0 * height))
+    left, top = max(0, left), max(0, top)
+    right, bottom = min(width, right), min(height, bottom)
     if right - left < 2 or bottom - top < 2:
-        raise ValueError(f"degenerate crop bbox {bbox_norm} on image {width}x{height}")
-
-    crop = img.crop((int(left), int(top), int(right), int(bottom)))
-
-    scale = min(4.0, max(1.0, max_dim / max(crop.width, crop.height)))
-    if scale > 1.0:
-        crop = crop.resize((int(crop.width * scale), int(crop.height * scale)), Image.LANCZOS)
-
-    buf = io.BytesIO()
-    crop.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def _recheck_colors(client, image_bytes, column_bbox, rows, image_name):
-    """Ask Gemini a second, dedicated question about background colors on a
-    cropped-and-upscaled image of just the first time-slot column, since a
-    single full-page glance is unreliable at telling orange/blue/yellow apart.
-    Returns a list of background strings aligned with `rows`, or None if the
-    recheck couldn't be performed — callers should then fall back to each
-    row's own first-pass background guess."""
-    if not rows:
         return None
-    if not (isinstance(column_bbox, list) and len(column_bbox) == 4):
-        logger.warning("COLOR_RECHECK_SKIPPED image=%s reason=no_bbox", image_name)
-        return None
+    return left, top, right, bottom
 
+
+def _median_fill(img, rect):
+    """Per-channel median of the non-ink pixels in `rect`, or None if the
+    region is (nearly) all ink."""
+    region = img.crop(tuple(int(v) for v in rect))
+    pixels = [p for p in region.getdata() if max(p) > INK_MAX_BRIGHTNESS]
+    if len(pixels) < 8:
+        return None
+    return [sorted(channel)[len(channel) // 2] for channel in zip(*pixels)]
+
+
+def _classify_fill(rgb, paper):
+    """Name the fill color of `rgb`, after white-balancing against `paper`
+    (the color a plain cell has under this particular photo's lighting)."""
+    balanced = [min(1.0, c / max(p, 1) * 0.92) for c, p in zip(rgb, paper)]
+    hue, saturation, _ = colorsys.rgb_to_hsv(*balanced)
+    if saturation < PLAIN_MAX_SATURATION:
+        return "plain"
+    hue *= 360
+    for upper, color in HUE_BANDS:
+        if hue < upper:
+            return color
+    return "other"
+
+
+def _read_cell_colors(image_bytes, column_bbox, cell_boxes, image_name):
+    """Classify each name cell's background straight from the photo's pixels.
+    Each cell is sampled through its middle band only (inner 40% of its
+    height), so a slightly-off box still lands inside the right row. The
+    column's x-range comes from column_bbox when available, since it's one
+    larger box and so more reliably placed than each tiny cell box.
+    Returns a list aligned with `cell_boxes` holding a color name, or None for
+    any cell that couldn't be read (callers fall back to Gemini's own guess)."""
     try:
-        bbox = [float(v) for v in column_bbox]
-        crop_bytes = _crop_and_upscale_column(image_bytes, bbox)
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception as e:
-        logger.warning("COLOR_RECHECK_SKIPPED image=%s reason=crop_failed error=%s", image_name, e)
-        return None
+        logger.warning("COLOR_READ_SKIPPED image=%s reason=open_failed error=%s", image_name, e)
+        return [None] * len(cell_boxes)
+    width, height = img.size
 
-    labels = [f'{r["name"]} ({r["position_raw"] or "?"})' for r in rows]
-    prompt = _build_color_check_prompt(labels)
+    column = _box_to_pixels(column_bbox, width, height)
+    cells = [_box_to_pixels(b, width, height) for b in cell_boxes]
 
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[types.Part.from_bytes(data=crop_bytes, mime_type="image/png"), prompt],
-            config=types.GenerateContentConfig(max_output_tokens=2048),
-        )
-    except Exception as e:
-        logger.warning("COLOR_RECHECK_FAILED image=%s error=%s", image_name, e)
-        return None
+    # Most first-column cells are plain, so the column's overall median is a
+    # good estimate of "plain paper" under this photo's lighting.
+    paper = _median_fill(img, column) if column else None
+    if paper is None:
+        known = [c for c in cells if c]
+        if known:
+            paper = _median_fill(img, (
+                min(c[0] for c in known), min(c[1] for c in known),
+                max(c[2] for c in known), max(c[3] for c in known),
+            ))
+    if paper is None:
+        logger.warning("COLOR_READ_SKIPPED image=%s reason=no_reference", image_name)
+        return [None] * len(cell_boxes)
 
-    raw_text = response.text or ""
-    logger.info("COLOR_RECHECK_RESPONSE image=%s raw_text=%r", image_name, raw_text)
-
-    text = raw_text.strip()
-    text = re.sub(r"^```(json)?", "", text).strip()
-    text = re.sub(r"```$", "", text).strip()
-
-    try:
-        colors = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if not match:
-            logger.warning("COLOR_RECHECK_PARSE_FAILED image=%s", image_name)
-            return None
-        try:
-            colors = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            logger.warning("COLOR_RECHECK_PARSE_FAILED image=%s", image_name)
-            return None
-
-    if not isinstance(colors, list) or len(colors) != len(rows):
-        logger.warning(
-            "COLOR_RECHECK_LENGTH_MISMATCH image=%s expected=%d got=%s",
-            image_name, len(rows), len(colors) if isinstance(colors, list) else type(colors).__name__,
-        )
-        return None
-
-    return [str(c).strip().lower() for c in colors]
-
-
-def _recheck_positions(client, image_bytes, row_bbox, rows, image_name):
-    """Ask Gemini a second, dedicated question re-reading each row's location
-    label from a cropped, upscaled image spanning the location column through
-    the first time-slot column together, since a single full-page glance can
-    misattribute a name to the row above or below its actual one (e.g. mixing
-    up two visually adjacent rows like CT Moderne/CT Ancien). Returns a list
-    of raw position strings aligned with `rows`, or None if the recheck
-    couldn't be performed -- callers should then fall back to each row's own
-    first-pass position guess."""
-    if not rows:
-        return None
-    if not (isinstance(row_bbox, list) and len(row_bbox) == 4):
-        logger.warning("POSITION_RECHECK_SKIPPED image=%s reason=no_bbox", image_name)
-        return None
-
-    try:
-        bbox = [float(v) for v in row_bbox]
-        crop_bytes = _crop_and_upscale_column(image_bytes, bbox)
-    except Exception as e:
-        logger.warning("POSITION_RECHECK_SKIPPED image=%s reason=crop_failed error=%s", image_name, e)
-        return None
-
-    prompt = _build_position_recheck_prompt(rows)
-
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[types.Part.from_bytes(data=crop_bytes, mime_type="image/png"), prompt],
-            config=types.GenerateContentConfig(max_output_tokens=2048),
-        )
-    except Exception as e:
-        logger.warning("POSITION_RECHECK_FAILED image=%s error=%s", image_name, e)
-        return None
-
-    raw_text = response.text or ""
-    logger.info("POSITION_RECHECK_RESPONSE image=%s raw_text=%r", image_name, raw_text)
-
-    text = raw_text.strip()
-    text = re.sub(r"^```(json)?", "", text).strip()
-    text = re.sub(r"```$", "", text).strip()
-
-    try:
-        positions = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if not match:
-            logger.warning("POSITION_RECHECK_PARSE_FAILED image=%s", image_name)
-            return None
-        try:
-            positions = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            logger.warning("POSITION_RECHECK_PARSE_FAILED image=%s", image_name)
-            return None
-
-    if not isinstance(positions, list) or len(positions) != len(rows):
-        logger.warning(
-            "POSITION_RECHECK_LENGTH_MISMATCH image=%s expected=%d got=%s",
-            image_name, len(rows), len(positions) if isinstance(positions, list) else type(positions).__name__,
-        )
-        return None
-
-    return [str(p).strip() for p in positions]
-
-
-def _recheck_outsiders(client, image_bytes, mime, image_name):
-    """The WIERTZ/MEUNIER box is small, sits outside the main grid, and is easy
-    for a single full-page glance to miss or garble (the first pass has been
-    seen reporting an empty box, or swapping a name for the other row's
-    label) -- ask a second, dedicated question, focused solely on this box,
-    against the full original image (its bbox is too small and unreliably
-    reported to crop to safely). Returns a list of {"location", "name"} dicts
-    (only for non-blank rows), or None if the recheck couldn't be performed."""
-    try:
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime), _build_outsider_recheck_prompt()],
-            config=types.GenerateContentConfig(max_output_tokens=1024),
-        )
-    except Exception as e:
-        logger.warning("OUTSIDER_RECHECK_FAILED image=%s error=%s", image_name, e)
-        return None
-
-    raw_text = response.text or ""
-    logger.info("OUTSIDER_RECHECK_RESPONSE image=%s raw_text=%r", image_name, raw_text)
-
-    text = raw_text.strip()
-    text = re.sub(r"^```(json)?", "", text).strip()
-    text = re.sub(r"```$", "", text).strip()
-
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if not match:
-            logger.warning("OUTSIDER_RECHECK_PARSE_FAILED image=%s", image_name)
-            return None
-        try:
-            parsed = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            logger.warning("OUTSIDER_RECHECK_PARSE_FAILED image=%s", image_name)
-            return None
-
-    if not isinstance(parsed, list):
-        logger.warning("OUTSIDER_RECHECK_BAD_SHAPE image=%s", image_name)
-        return None
-
-    results = []
-    for item in parsed:
-        if not isinstance(item, dict):
+    colors = []
+    for cell in cells:
+        if not cell:
+            colors.append(None)
             continue
-        location = str(item.get("location", "")).strip()
-        name = _strip_stars(str(item.get("name", "")))
-        if location and name:
-            results.append({"location": location, "name": name})
-    return results
+        left, top, right, bottom = cell
+        if column:
+            left, right = column[0], column[2]
+        dx, dy = (right - left) * 0.15, (bottom - top) * 0.30
+        fill = _median_fill(img, (left + dx, top + dy, right - dx, bottom - dy))
+        colors.append(_classify_fill(fill, paper) if fill else None)
+    return colors
 
 
 def _get_client():
@@ -489,7 +327,14 @@ def extract_roster(image_path):
                 types.Part.from_bytes(data=image_bytes, mime_type=mime),
                 _build_prompt(),
             ],
-            config=types.GenerateContentConfig(max_output_tokens=8192),
+            # JSON mode makes an unparseable reply (and the retry it costs)
+            # much rarer. The limit is higher than before since each shift now
+            # carries a bounding box, and on gemini-2.5 thinking tokens count
+            # against it too.
+            config=types.GenerateContentConfig(
+                max_output_tokens=16384,
+                response_mime_type="application/json",
+            ),
         )
 
         raw_text = response.text or ""
@@ -541,6 +386,8 @@ def extract_roster(image_path):
 
     rows = []
     for item in raw_shifts:
+        if not isinstance(item, dict):
+            continue
         name = _strip_stars(str(item.get("name", "")))
         if not name:
             continue
@@ -548,39 +395,34 @@ def extract_roster(image_path):
             "name": name,
             "position_raw": str(item.get("position", "")).strip(),
             "background": str(item.get("background", "")).strip().lower(),
+            "box": item.get("box"),
         })
 
-    # A single full-page glance is not reliable enough to trust for silently
-    # dropping people (it confuses orange/blue/yellow) — re-check colors on a
-    # cropped, upscaled image of just the first time-slot column.
+    # Gemini's one-glance color call confuses orange/blue/yellow, so each
+    # cell's background is re-read from the photo's own pixels, locally -- no
+    # extra Gemini request. Gemini's guess is only kept for a cell whose
+    # pixels couldn't be read (e.g. a missing or garbled box).
     column_bbox = data.get("column_bbox") if isinstance(data, dict) else None
-    refined = _recheck_colors(client, image_bytes, column_bbox, rows, image_name)
-    if refined is not None:
-        for row, bg in zip(rows, refined):
-            row["background"] = bg
-
-    # Likewise, a single full-page glance can misattribute a name to the row
-    # above or below its actual one -- e.g. mixing up two visually adjacent
-    # locations like CT Moderne/CT Ancien. Re-check each row's location label
-    # on a cropped, upscaled image spanning the location column through the
-    # first time-slot column together, so the name and its true location are
-    # read side by side instead of across the whole page width.
-    row_bbox = data.get("row_bbox") if isinstance(data, dict) else None
-    refined_positions = _recheck_positions(client, image_bytes, row_bbox, rows, image_name)
-    changed_positions = 0
-    if refined_positions is not None:
-        for row, pos in zip(rows, refined_positions):
-            if pos and pos.strip() != row["position_raw"]:
-                changed_positions += 1
-                row["position_raw"] = pos.strip()
+    local_colors = _read_cell_colors(image_bytes, column_bbox, [r["box"] for r in rows], image_name)
+    colors_read = 0
+    colors_changed = 0
+    for row, color in zip(rows, local_colors):
+        if color is None:
+            continue
+        colors_read += 1
+        if color != row["background"]:
+            colors_changed += 1
+            logger.info(
+                "COLOR_OVERRIDE image=%s name=%s gemini=%s pixels=%s",
+                image_name, row["name"], row["background"], color,
+            )
+        row["background"] = color
 
     # Orange/red mean "not actually working this slot" on the physical roster,
-    # but a single-glance color read is exactly the kind of judgment call that
-    # gets confused (orange vs blue, etc.) -- so rather than silently dropping
+    # but a color read can still be wrong -- so rather than silently dropping
     # those rows here where a misread becomes an invisible, uncorrectable data
     # loss, they're kept and marked. The Review screen shows the flagged color
-    # and pre-unchecks the row, so a human confirms or overrides it instead of
-    # trusting a single AI color call no one ever sees.
+    # and pre-unchecks the row, so a human confirms or overrides it.
     cleaned = []
     skipped_marked = 0
     for row in rows:
@@ -596,14 +438,15 @@ def extract_roster(image_path):
             "flagged_skip": flagged,
         })
 
-    # The WIERTZ/MEUNIER box isn't part of the main grid at all, so it's read
-    # in its own dedicated pass over the full image (not extracted in the
-    # main call above -- see the OUTSIDER_RECHECK docstring for why).
-    outsider_shifts = _recheck_outsiders(client, image_bytes, mime, image_name) or []
+    # The WIERTZ/MEUNIER box sits outside the main grid; it's read in the same
+    # request, into its own "outsiders" list.
+    outsider_shifts = data.get("outsiders") if isinstance(data, dict) else None
 
     outsider_count = 0
     if isinstance(outsider_shifts, list):
         for item in outsider_shifts:
+            if not isinstance(item, dict):
+                continue
             name = _strip_stars(str(item.get("name", "")))
             raw_position = str(item.get("location", "")).strip()
             if not name or not raw_position:
@@ -622,11 +465,11 @@ def extract_roster(image_path):
 
     logger.info(
         "PARSED image=%s detected_date=%s grid_title=%s time_slot_columns=%s "
-        "extracted_time_slot=%s entry_count=%d skipped_marked=%d color_recheck=%s "
-        "position_recheck=%s positions_changed=%d outsider_count=%d",
+        "extracted_time_slot=%s entry_count=%d skipped_marked=%d colors_read=%d/%d "
+        "colors_changed=%d outsider_count=%d",
         image_name, detected_date, grid_title, time_slot_columns,
-        extracted_time_slot, len(entries), skipped_marked, refined is not None,
-        refined_positions is not None, changed_positions, outsider_count,
+        extracted_time_slot, len(entries), skipped_marked, colors_read, len(rows),
+        colors_changed, outsider_count,
     )
 
     return {
