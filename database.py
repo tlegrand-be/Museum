@@ -83,7 +83,7 @@ def _fix_worker_name(conn, old_name, canonical_name):
     existing canonical-spelled colleague's shifts if one is already present
     (same merge-then-drop-duplicates logic as the interactive rename_worker
     below). No-op if old_name isn't currently a worker."""
-    old_row = conn.execute("SELECT id FROM workers WHERE name = ?", (old_name,)).fetchone()
+    old_row = conn.execute("SELECT id FROM workers WHERE name = ? COLLATE NOCASE", (old_name,)).fetchone()
     if not old_row:
         return
     other = conn.execute(
@@ -131,6 +131,16 @@ def _split_worker_by_wing(conn, name, wing, wing_name):
             conn.execute("DELETE FROM shifts WHERE id = ?", (shift["id"],))
 
 
+# Known misspellings of a colleague's name -> the intended spelling. Applied
+# both to already-saved rows (run_worker_maintenance) and to every new name
+# as it's saved (get_or_create_worker), so a typo can't reappear on the next
+# upload. Keys are lowercase.
+WORKER_NAME_FIXES = {
+    "cranen": "CRAENEN",
+    "cosuns": "COSIJNS",   # OCR misreads the "IJ" as a "U"
+}
+
+
 def run_worker_maintenance():
     """Idempotent colleague-name cleanup that runs on every startup, same as
     run_location_maintenance -- so a spelling correction self-heals
@@ -138,7 +148,8 @@ def run_worker_maintenance():
     access needed."""
     conn = get_db()
     try:
-        _fix_worker_name(conn, "CRANEN", "CRAENEN")
+        for typo, canonical in WORKER_NAME_FIXES.items():
+            _fix_worker_name(conn, typo, canonical)
         # GODART and GODARD were being conflated under one name -- any of
         # their shifts in the Balat wing actually belong to GODARD, so split
         # those across; everything else (other wings) stays under GODART.
@@ -237,6 +248,7 @@ def get_or_create_worker(conn, name):
     misread like "EKOFO" vs "EKORO" -- resolves to that colleague too, rather
     than creating a near-duplicate."""
     name = name.strip()
+    name = WORKER_NAME_FIXES.get(name.lower(), name)
     row = conn.execute("SELECT id FROM workers WHERE name = ? COLLATE NOCASE", (name,)).fetchone()
     if row:
         return row["id"]
