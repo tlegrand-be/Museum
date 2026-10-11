@@ -61,7 +61,7 @@
     <tbody>
       {% for e in day_entries %}
       <tr>
-        <td>{{ e.worker }}</td>
+        <td{% if e.worker is high_security %} class="high-security-name" title="High security"{% endif %}>{{ e.worker }}</td>
         <td>{{ e.location }}</td>
         <td>
           <span class="dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{{ group_colors.get(e.area, '#8A8A78') }}; margin-right:6px;"></span>
@@ -116,6 +116,7 @@
     const rows = document.getElementById('manualRows');
     const input = document.getElementById('newLocation');
     const WORKER_NAMES = {{ worker_names | tojson }};
+    const HIGH_SECURITY = new Set({{ worker_names | select('high_security') | list | tojson }});
     const ORDER = {{ manual_locations | tojson }};
 
     function el(tag, props = {}, children = []) {
@@ -193,18 +194,23 @@
     function openList(input) {
       const matches = suggestionsFor(input.value);
       if (!matches.length) { closeList(); return; }
-      list.replaceChildren(...matches.map(n => el('li', { textContent: n, role: 'option' })));
+      list.replaceChildren(...matches.map(n => el('li', {
+        textContent: n, role: 'option', className: HIGH_SECURITY.has(n) ? 'high-security-name' : '',
+      })));
       activeInput = input;
       input.parentElement.append(list);
       highlight(0);
     }
 
     // Flag a typed name that isn't a known colleague -- it'd be saved as a
-    // brand-new colleague, which is usually a typo rather than intended.
+    // brand-new colleague, which is usually a typo rather than intended --
+    // and show a picked external (high-security) colleague in red.
     function markUnknown(input) {
       const v = fold(input.value.trim());
-      const unknown = v && !KNOWN.some(w => w.key === v);
+      const match = KNOWN.find(w => w.key === v);
+      const unknown = Boolean(v) && !match;
       input.classList.toggle('is-unknown', unknown);
+      input.classList.toggle('high-security-name', Boolean(match) && HIGH_SECURITY.has(match.name));
       input.title = unknown ? 'Not a known colleague -- will be added as a new one' : '';
     }
 
@@ -226,7 +232,7 @@
 
     rows.addEventListener('input', e => {
       if (!e.target.classList.contains('name-input')) return;
-      e.target.classList.remove('is-unknown');
+      e.target.classList.remove('is-unknown', 'high-security-name');
       openList(e.target);
     });
     rows.addEventListener('focusin', e => {

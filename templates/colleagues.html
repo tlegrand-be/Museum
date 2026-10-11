@@ -4,8 +4,23 @@
 
 <div class="colleagues-titlebar">
   <h1>Colleagues</h1>
-  <button type="button" class="btn ghost" id="compareToggle">Compare colleagues</button>
+  <span class="compare-bar-actions">
+    {% if is_admin %}
+    <button type="button" class="btn ghost" id="hsToggle">Edit high security</button>
+    {% endif %}
+    <button type="button" class="btn ghost" id="compareToggle">Compare colleagues</button>
+  </span>
 </div>
+
+{% if is_admin %}
+<form class="compare-bar" id="hsBar" style="display:none;" method="post" action="{{ url_for('save_high_security') }}">
+  <span id="hsHint">Click colleagues to mark them as high security (red) or move them back, then save.</span>
+  <span class="compare-bar-actions">
+    <button class="btn brass" type="submit">Save</button>
+    <button class="btn ghost" type="button" id="hsCancel">Cancel</button>
+  </span>
+</form>
+{% endif %}
 
 <div class="compare-bar" id="compareBar" style="display:none;">
   <span id="compareHint">Click 2 or more colleagues below, then compare.</span>
@@ -25,17 +40,29 @@
 </div>
 {% endif %}
 
-{% if workers | length == 0 %}
+{% if workers | length == 0 and high_security | length == 0 %}
 <div class="plaque empty-state"><p>No colleagues logged yet. Upload a roster to get started.</p></div>
 {% else %}
 <div class="card-grid">
   {% for w in workers %}
-  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}">
+  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="0">
     <div class="name">{{ w.name }}</div>
     <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
   </a>
   {% endfor %}
 </div>
+
+{% if high_security %}
+<div class="section-title high-security-title">High security</div>
+<div class="card-grid">
+  {% for w in high_security %}
+  <a class="entity-card high-security" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="1">
+    <div class="name">{{ w.name }}</div>
+    <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 
 <script>
@@ -67,9 +94,59 @@
     cards.forEach(c => c.classList.remove('selected'));
   }
 
+  // ---- Edit high security (admins only) ----
+  // Clicking a card toggles it red in place; Save posts every card that's
+  // red at that moment, so the server ends up with exactly that set.
+  const hsToggle = document.getElementById('hsToggle');
+  const hsBar = document.getElementById('hsBar');
+  const hsHint = document.getElementById('hsHint');
+  let hsMode = false;
+
+  function hsChanges() {
+    return [...cards].filter(c => c.classList.contains('high-security') !== (c.dataset.hs === '1')).length;
+  }
+
+  function exitHsMode() {
+    hsMode = false;
+    if (!hsBar) return;
+    hsBar.style.display = 'none';
+    cards.forEach(c => c.classList.toggle('high-security', c.dataset.hs === '1'));  // undo unsaved clicks
+  }
+
+  if (hsToggle) {
+    hsToggle.addEventListener('click', () => {
+      if (hsMode) { exitHsMode(); return; }
+      exitCompareMode();
+      hsMode = true;
+      hsBar.style.display = 'flex';
+      hsHint.textContent = 'Click colleagues to mark them as high security (red) or move them back, then save.';
+    });
+    document.getElementById('hsCancel').addEventListener('click', exitHsMode);
+    hsBar.addEventListener('submit', () => {
+      cards.forEach(c => {
+        if (c.classList.contains('high-security')) {
+          hsBar.append(Object.assign(document.createElement('input'), {
+            type: 'hidden', name: 'worker_id', value: c.dataset.workerId,
+          }));
+        }
+      });
+    });
+    cards.forEach(card => {
+      card.addEventListener('click', e => {
+        if (!hsMode) return;
+        e.preventDefault();
+        card.classList.toggle('high-security');
+        const n = hsChanges();
+        hsHint.textContent = n ? `${n} change${n === 1 ? '' : 's'} — save to apply.`
+                               : 'Click colleagues to mark them as high security (red) or move them back, then save.';
+      });
+    });
+  }
+
   compareToggle.addEventListener('click', () => {
     compareMode = !compareMode;
     if (compareMode) {
+      exitHsMode();
       compareBar.style.display = 'flex';
       refresh();
     } else {

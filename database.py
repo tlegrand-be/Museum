@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import difflib
+import unicodedata
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "instance" / "museum.db"
@@ -71,6 +72,15 @@ def init_db():
     existing_cols = [r["name"] for r in conn.execute("PRAGMA table_info(locations)")]
     if "group_name" not in existing_cols:
         conn.execute("ALTER TABLE locations ADD COLUMN group_name TEXT NOT NULL DEFAULT 'Other'")
+    # Same for the high-security flag on colleagues. Only when the column is
+    # first created are the initial external colleagues marked -- from then
+    # on it's edited from the Colleagues page, and never overwritten here.
+    worker_cols = [r["name"] for r in conn.execute("PRAGMA table_info(workers)")]
+    if "high_security" not in worker_cols:
+        conn.execute("ALTER TABLE workers ADD COLUMN high_security INTEGER NOT NULL DEFAULT 0")
+        for row in conn.execute("SELECT id, name FROM workers").fetchall():
+            if _fold_name(row["name"]) in DEFAULT_HIGH_SECURITY_NAMES:
+                conn.execute("UPDATE workers SET high_security = 1 WHERE id = ?", (row["id"],))
     conn.commit()
     conn.close()
     run_location_maintenance()
@@ -139,6 +149,56 @@ WORKER_NAME_FIXES = {
     "cranen": "CRAENEN",
     "cosuns": "COSIJNS",   # OCR misreads the "IJ" as a "U"
 }
+
+# External (high-security) colleagues are listed separately on the Colleagues
+# page, left out of the Overview entirely, and shown in red wherever names
+# are picked or listed. Who counts is the workers.high_security flag, edited
+# from the Colleagues page. This list is only the starting point: these
+# names are flagged once when the flag is first added, and a brand-new
+# colleague created with one of them starts out flagged. Matched ignoring
+# case and accents, so "Bérivan" counts as BERIVAN.
+DEFAULT_HIGH_SECURITY_NAMES = {
+    "NORMAN", "BERIVAN", "KAMIL", "ELOISE", "ZAFER", "ANTHONY", "CHRISTIAN",
+    "GAUTHIER", "HARBIN", "JELA", "JULIE", "QUENTIN", "SASHA", "WASSIM", "YOUNES",
+}
+
+
+def _fold_name(name):
+    decomposed = unicodedata.normalize("NFD", name or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).strip().upper()
+
+
+def high_security_names():
+    """Folded names (see _fold_name) of every colleague flagged high security."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT name FROM workers WHERE high_security = 1").fetchall()
+        return {_fold_name(r["name"]) for r in rows}
+    finally:
+        conn.close()
+
+
+def set_high_security(worker_ids):
+    """Make exactly `worker_ids` the high-security colleagues; everyone else
+    is cleared. Returns (now flagged, now cleared) counts of changed rows."""
+    ids = [int(i) for i in worker_ids]
+    placeholders = ",".join("?" * len(ids))
+    conn = get_db()
+    try:
+        if ids:
+            flagged = conn.execute(
+                f"UPDATE workers SET high_security = 1 WHERE high_security = 0 AND id IN ({placeholders})", ids,
+            ).rowcount
+            cleared = conn.execute(
+                f"UPDATE workers SET high_security = 0 WHERE high_security = 1 AND id NOT IN ({placeholders})", ids,
+            ).rowcount
+        else:
+            flagged = 0
+            cleared = conn.execute("UPDATE workers SET high_security = 0 WHERE high_security = 1").rowcount
+        conn.commit()
+        return flagged, cleared
+    finally:
+        conn.close()
 
 
 def run_worker_maintenance():
@@ -257,7 +317,10 @@ def get_or_create_worker(conn, name):
         row = conn.execute("SELECT id FROM workers WHERE name = ?", (similar,)).fetchone()
         if row:
             return row["id"]
-    cur = conn.execute("INSERT INTO workers (name) VALUES (?)", (name,))
+    cur = conn.execute(
+        "INSERT INTO workers (name, high_security) VALUES (?, ?)",
+        (name, int(_fold_name(name) in DEFAULT_HIGH_SECURITY_NAMES)),
+    )
     return cur.lastrowid
 
 
@@ -589,19 +652,34 @@ def save_shifts(entries, shift_date, source_image=None):
     return saved, skipped
 
 
-def overview_stats():
+def overview_stats(exclude_high_security=False):
+    """With exclude_high_security, the external colleagues and every shift of
+    theirs are left out entirely -- including from the day and per-location
+    counts -- as if they'd never been logged (used by the Overview page)."""
     import location_rules
     conn = get_db()
-    total_days = conn.execute("SELECT COUNT(DISTINCT shift_date) c FROM shifts").fetchone()["c"]
-    workers = conn.execute(
-        """SELECT w.id, w.name, COUNT(s.id) shift_count FROM workers w
+    workers = [dict(r) for r in conn.execute(
+        """SELECT w.id, w.name, w.high_security, COUNT(s.id) shift_count FROM workers w
            LEFT JOIN shifts s ON s.worker_id = w.id
            GROUP BY w.id ORDER BY w.name COLLATE NOCASE"""
-    ).fetchall()
+    ).fetchall()]
+
+    excluded_ids = []
+    if exclude_high_security:
+        excluded_ids = [w["id"] for w in workers if w["high_security"]]
+        workers = [w for w in workers if w["id"] not in excluded_ids]
+    placeholders = ",".join("?" * len(excluded_ids))
+    not_excluded = f"AND s.worker_id NOT IN ({placeholders})" if excluded_ids else ""
+
+    total_days = conn.execute(
+        f"SELECT COUNT(DISTINCT shift_date) c FROM shifts s WHERE 1=1 {not_excluded}",
+        excluded_ids,
+    ).fetchone()["c"]
     locations = conn.execute(
-        """SELECT l.id, l.name, l.group_name, COUNT(s.id) shift_count FROM locations l
-           LEFT JOIN shifts s ON s.location_id = l.id
-           GROUP BY l.id"""
+        f"""SELECT l.id, l.name, l.group_name, COUNT(s.id) shift_count FROM locations l
+            LEFT JOIN shifts s ON s.location_id = l.id {not_excluded}
+            GROUP BY l.id""",
+        excluded_ids,
     ).fetchall()
     conn.close()
     locations_sorted = sorted(
@@ -609,19 +687,20 @@ def overview_stats():
     )
     return {
         "total_days": total_days,
-        "workers": [dict(r) for r in workers],
+        "workers": workers,
         "locations": locations_sorted,
     }
 
 
-def worker_group_breakdown():
+def worker_group_breakdown(exclude_high_security=False):
     """For the stacked 100% bar chart: for each worker (with at least one shift),
-    how many shifts they've had in each museum wing (FORUM/BALAT/MAGRITTE/Other)."""
+    how many shifts they've had in each museum wing (FORUM/BALAT/MAGRITTE/Other).
+    exclude_high_security leaves the external colleagues out of the chart."""
     import location_rules
 
     conn = get_db()
     rows = conn.execute(
-        """SELECT w.name AS worker, l.group_name AS grp, COUNT(*) c
+        """SELECT w.name AS worker, w.high_security, l.group_name AS grp, COUNT(*) c
            FROM shifts s
            JOIN workers w ON w.id = s.worker_id
            JOIN locations l ON l.id = s.location_id
@@ -631,6 +710,8 @@ def worker_group_breakdown():
 
     per_worker = {}
     for r in rows:
+        if exclude_high_security and r["high_security"]:
+            continue
         per_worker.setdefault(r["worker"], {g: 0 for g in location_rules.GROUP_ORDER})
         per_worker[r["worker"]][r["grp"]] = r["c"]
 
@@ -823,7 +904,10 @@ def create_worker(name):
         similar = find_similar_worker_name(conn, name)
         if similar:
             return None, similar
-        cur = conn.execute("INSERT INTO workers (name) VALUES (?)", (name,))
+        cur = conn.execute(
+            "INSERT INTO workers (name, high_security) VALUES (?, ?)",
+            (name, int(_fold_name(name) in DEFAULT_HIGH_SECURITY_NAMES)),
+        )
         conn.commit()
         return cur.lastrowid, None
     finally:

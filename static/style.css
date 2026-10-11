@@ -284,6 +284,20 @@ a { color: inherit; text-decoration: none; }
   transform: translateY(-2px);
   box-shadow: 0 4px 14px rgba(31, 58, 46, 0.12);
 }
+/* External (high-security) colleagues -- see HIGH_SECURITY_NAMES in database.py. */
+.section-title.high-security-title { color: var(--rust); margin-top: 32px; }
+.entity-card.high-security { border-left-color: var(--rust); }
+.entity-card.high-security .name,
+.high-security-name { color: var(--rust); font-weight: 600; }
+/* In a name dropdown: red for external colleagues' options, and for the
+   closed box itself while one of them is selected. */
+select:has(option.high-security-name:checked) { color: var(--rust); font-weight: 600; }
+select:has(option.high-security-name:checked) option:not(.high-security-name) {
+  color: CanvasText;   /* don't let the box's red spill onto everyone else's option */
+  font-weight: normal;
+}
+select option.high-security-name { color: var(--rust); font-weight: 600; }
+
 .entity-card .name {
   font-family: var(--heading-font);
   font-weight: 600;

@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    flash, send_file, abort, session
+    flash, send_file, abort, session, g
 )
 from werkzeug.utils import secure_filename
 
@@ -82,6 +82,17 @@ def format_dmy(value):
 
 
 app.jinja_env.filters["dmy"] = format_dmy
+def is_high_security(name):
+    """Whether `name` belongs to a colleague flagged high security. The set of
+    flagged names is loaded once per request, since templates call this for
+    every option of every name dropdown."""
+    if "high_security_names" not in g:
+        g.high_security_names = database.high_security_names()
+    return database._fold_name(name) in g.high_security_names
+
+
+# `name is high_security` in templates, and `names | select('high_security')`.
+app.jinja_env.tests["high_security"] = is_high_security
 
 
 @app.before_request
@@ -151,8 +162,9 @@ def lock():
 
 @app.route("/")
 def index():
-    stats = database.overview_stats()
-    group_chart = database.worker_group_breakdown()
+    # External (high-security) colleagues are kept off the Overview entirely.
+    stats = database.overview_stats(exclude_high_security=True)
+    group_chart = database.worker_group_breakdown(exclude_high_security=True)
     last_update = database.last_update()
     widgets = get_cookie_json("overview_widgets", settings_defs.DEFAULT_OVERVIEW_WIDGETS)
     quick_notes = database.list_quick_notes(limit=3)
@@ -403,7 +415,23 @@ def upload_image(filename):
 @app.route("/colleagues")
 def colleagues_page():
     stats = database.overview_stats()
-    return render_template("colleagues.html", workers=stats["workers"])
+    workers = [w for w in stats["workers"] if not w["high_security"]]
+    high_security = [w for w in stats["workers"] if w["high_security"]]
+    return render_template("colleagues.html", workers=workers, high_security=high_security)
+
+
+@app.route("/colleagues/high-security", methods=["POST"])
+@admin_required
+def save_high_security():
+    worker_ids = request.form.getlist("worker_id", type=int)
+    flagged, cleared = database.set_high_security(worker_ids)
+    parts = []
+    if flagged:
+        parts.append(f"{flagged} moved to high security.")
+    if cleared:
+        parts.append(f"{cleared} moved back to the main list.")
+    flash(" ".join(parts) if parts else "No changes.", "success")
+    return redirect(url_for("colleagues_page"))
 
 
 @app.route("/colleagues/add", methods=["POST"])
