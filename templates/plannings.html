@@ -73,9 +73,10 @@
   </table>
   {% elif is_admin %}
   <p style="opacity:0.7; margin-bottom: 16px; font-size: 14px;">
-    Nothing logged for this date yet. Pick who worked at each location and save.
-    Locations left on "&mdash; nobody &mdash;" are skipped. Remove a location with
-    the &times;, or add one (or a second colleague at the same spot) below.
+    Nothing logged for this date yet. Type who worked at each location &mdash;
+    matching colleagues appear as you type; &uarr;/&darr; to choose, Enter to pick
+    and jump to the next location. Locations left empty are skipped. Remove a
+    location with the &times;, or add one (or a second colleague at the same spot) below.
   </p>
   <form class="upload-form" method="post" action="{{ url_for('add_manual_planning') }}">
     <input type="hidden" name="shift_date" value="{{ selected_day }}">
@@ -91,11 +92,8 @@
         {% for loc in roster_locations %}
         <tr>
           <td><input type="hidden" name="position" value="{{ loc }}">{{ loc }}</td>
-          <td>
-            <select name="name">
-              <option value="" selected>&mdash; nobody &mdash;</option>
-              {% for n in worker_names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
-            </select>
+          <td class="name-cell">
+            <input type="text" name="name" class="name-input" autocomplete="off" placeholder="nobody">
           </td>
           <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;" title="Remove this location">&times;</button></td>
         </tr>
@@ -134,13 +132,12 @@
     }
 
     function addRow(loc) {
-      const select = el('select', { name: 'name' }, [
-        el('option', { value: '', textContent: '— nobody —', selected: true }),
-        ...WORKER_NAMES.map(n => el('option', { value: n, textContent: n })),
-      ]);
+      const nameInput = el('input', {
+        type: 'text', name: 'name', className: 'name-input', autocomplete: 'off', placeholder: 'nobody',
+      });
       const tr = el('tr', {}, [
         el('td', {}, [el('input', { type: 'hidden', name: 'position', value: loc }), loc]),
-        el('td', {}, [select]),
+        el('td', { className: 'name-cell' }, [nameInput]),
         el('td', {}, [el('button', {
           type: 'button', className: 'btn ghost remove-row', textContent: '×',
           title: 'Remove this location', style: 'padding: 6px 10px;',
@@ -148,8 +145,124 @@
       ]);
       const after = [...rows.children].find(r => rank(r.querySelector('input[name="position"]').value) > rank(loc));
       rows.insertBefore(tr, after || null);
-      select.focus();
+      nameInput.focus();
     }
+
+    // ---- Colleague type-ahead ----
+    // Ranking: whole name starts with what's typed, then any word in it does
+    // ("van" -> "VAN UYTVEN", then "DE VANDER..."), then -- from 2 letters on,
+    // so a single letter doesn't list half the team -- anywhere in the name.
+    // Accents and case are ignored.
+    const fold = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const KNOWN = WORKER_NAMES.map(n => ({ name: n, key: fold(n), words: fold(n).split(/[\s\-']+/) }));
+    const MAX_SUGGESTIONS = 8;
+
+    function suggestionsFor(query) {
+      const q = fold(query.trim());
+      if (!q) return [];
+      const scored = [];
+      for (const w of KNOWN) {
+        let score;
+        if (w.key.startsWith(q)) score = 0;
+        else if (w.words.some(word => word.startsWith(q))) score = 1;
+        else if (q.length >= 2 && w.key.includes(q)) score = 2;
+        else continue;
+        scored.push([score, w.name]);
+      }
+      scored.sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1]));
+      return scored.slice(0, MAX_SUGGESTIONS).map(s => s[1]);
+    }
+
+    const list = el('ul', { className: 'name-suggest', role: 'listbox' });
+    let activeInput = null;
+    let active = -1;
+
+    function closeList() {
+      list.remove();
+      activeInput = null;
+      active = -1;
+    }
+
+    function highlight(i) {
+      const items = list.children;
+      if (!items.length) return;
+      active = (i + items.length) % items.length;
+      [...items].forEach((li, j) => li.classList.toggle('active', j === active));
+      items[active].scrollIntoView({ block: 'nearest' });
+    }
+
+    function openList(input) {
+      const matches = suggestionsFor(input.value);
+      if (!matches.length) { closeList(); return; }
+      list.replaceChildren(...matches.map(n => el('li', { textContent: n, role: 'option' })));
+      activeInput = input;
+      input.parentElement.append(list);
+      highlight(0);
+    }
+
+    // Flag a typed name that isn't a known colleague -- it'd be saved as a
+    // brand-new colleague, which is usually a typo rather than intended.
+    function markUnknown(input) {
+      const v = fold(input.value.trim());
+      const unknown = v && !KNOWN.some(w => w.key === v);
+      input.classList.toggle('is-unknown', unknown);
+      input.title = unknown ? 'Not a known colleague -- will be added as a new one' : '';
+    }
+
+    function nextNameInput(input) {
+      const all = [...rows.querySelectorAll('.name-input')];
+      return all[all.indexOf(input) + 1] || null;
+    }
+
+    function pick(input, name, advance) {
+      input.value = name;
+      markUnknown(input);
+      closeList();
+      if (advance) {
+        const next = nextNameInput(input);
+        if (next) next.focus();
+        else document.getElementById('newLocation').focus();
+      }
+    }
+
+    rows.addEventListener('input', e => {
+      if (!e.target.classList.contains('name-input')) return;
+      e.target.classList.remove('is-unknown');
+      openList(e.target);
+    });
+    rows.addEventListener('focusin', e => {
+      if (e.target.classList.contains('name-input') && e.target.value.trim()) openList(e.target);
+    });
+    rows.addEventListener('focusout', e => {
+      if (!e.target.classList.contains('name-input')) return;
+      markUnknown(e.target);
+      if (activeInput === e.target) closeList();
+    });
+    rows.addEventListener('keydown', e => {
+      const input = e.target;
+      if (!input.classList.contains('name-input')) return;
+      const open = activeInput === input && list.children.length;
+      if (e.key === 'ArrowDown' && open) { e.preventDefault(); highlight(active + 1); }
+      else if (e.key === 'ArrowUp' && open) { e.preventDefault(); highlight(active - 1); }
+      else if (e.key === 'Escape' && open) { e.preventDefault(); closeList(); }
+      else if (e.key === 'Enter') {
+        // Never submit the whole form from a name box -- Enter picks the
+        // highlighted colleague (if any) and moves to the next location.
+        e.preventDefault();
+        if (open) pick(input, list.children[active].textContent, true);
+        else pick(input, input.value.trim(), true);
+      } else if (e.key === 'Tab' && open && !e.shiftKey) {
+        pick(input, list.children[active].textContent, false);  // default Tab still moves focus
+      }
+    });
+    // mousedown (not click) so the input doesn't lose focus and close the
+    // list before the pick registers.
+    list.addEventListener('mousedown', e => {
+      const li = e.target.closest('li');
+      if (!li || !activeInput) return;
+      e.preventDefault();
+      pick(activeInput, li.textContent, true);
+    });
 
     document.getElementById('addLocation').addEventListener('click', () => {
       const loc = input.value.trim();
