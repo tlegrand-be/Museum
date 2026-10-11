@@ -580,17 +580,18 @@ def plannings_page():
     dates_with_shifts = database.dates_with_shifts_in_month(year, month)
     worker_counts = database.worker_counts_in_month(year, month)
     day_entries = database.shifts_for_date(selected_day) if selected_day else None
-    # A day with nothing logged yet can be filled in by hand (admins only):
-    # pre-fill one row per regularly-staffed location in roster order. Every
-    # known location (including the occasional ones left out of the defaults)
-    # is still offered under "Location to add".
+    # Admins get the fill-in form for an empty day, or for a day that already
+    # has a schedule after clicking "Edit this day" (?edit=1).
+    editing = bool(selected_day) and session.get("role") == "admin" and (
+        not day_entries or request.args.get("edit") == "1"
+    )
+    # Every known location (including the occasional ones left out of the
+    # default rows) is offered under "Location to add".
     manual_locations = list(location_rules.ROSTER_ORDER)
     for loc in database.all_locations():
         if loc["name"] not in manual_locations:
             manual_locations.append(loc["name"])
-    default_locations = [
-        loc for loc in location_rules.ROSTER_ORDER if loc not in MANUAL_ENTRY_OPTIONAL_LOCATIONS
-    ]
+    form_rows = manual_form_rows(day_entries or []) if editing else []
 
     prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
     next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
@@ -602,7 +603,7 @@ def plannings_page():
         worker_counts=worker_counts,
         selected_day=selected_day, day_entries=day_entries,
         manual_locations=manual_locations,
-        roster_locations=default_locations,
+        editing=editing, form_rows=form_rows,
         worker_names=database.all_worker_names(),
         today_iso=today.isoformat(),
         prev_year=prev_year, prev_month=prev_month,
@@ -616,6 +617,31 @@ MANUAL_SOURCE = "manual-entry"
 # planning -- add them with "Location to add" when needed.
 MANUAL_ENTRY_OPTIONAL_LOCATIONS = {"Musicorum", "Wiertz", "Meunier"}
 
+# Locations that get two default rows, since the roster sheet staffs them
+# with two people.
+MANUAL_ENTRY_DOUBLE_LOCATIONS = {"Entrée principale", "Paccar"}
+
+
+def manual_form_rows(entries):
+    """Rows for the Plannings fill-in form, as (location, colleague name)
+    pairs in roster order: the default empty rows, with each existing shift
+    of the day (when editing) placed into a free row of its location, or into
+    an extra row of that location if they're all taken."""
+    rows = []
+    for loc in location_rules.ROSTER_ORDER:
+        if loc in MANUAL_ENTRY_OPTIONAL_LOCATIONS:
+            continue
+        copies = 2 if loc in MANUAL_ENTRY_DOUBLE_LOCATIONS else 1
+        rows.extend([loc, ""] for _ in range(copies))
+    for e in entries:
+        free = next((r for r in rows if r[0] == e["location"] and not r[1]), None)
+        if free:
+            free[1] = e["worker"]
+        else:
+            rows.append([e["location"], e["worker"]])
+    rows.sort(key=lambda r: location_rules.roster_sort_key(r[0]))  # stable: extras follow their location
+    return [tuple(r) for r in rows]
+
 
 @app.route("/plannings/manual", methods=["POST"])
 @admin_required
@@ -628,7 +654,7 @@ def add_manual_planning():
 
     names = request.form.getlist("name")
     positions = request.form.getlist("position")
-    # Rows left on "-- nobody --" (or with a blank location) are just skipped.
+    # Rows left empty (or with a blank location) are just skipped.
     entries = [
         {"name": n.strip(), "position": p.strip()}
         for n, p in zip(names, positions)
@@ -639,13 +665,21 @@ def add_manual_planning():
         "plannings_page", year=day.year, month=day.month, day=shift_date,
     ) + "#day-detail")
     if not entries:
-        flash("Pick at least one colleague before saving.", "error")
+        # Clearing every row would wipe the whole day -- too easy to do by
+        # accident from this form; Upload history's Delete is the place for that.
+        flash("Pick at least one colleague before saving. To remove a whole day, "
+              "use Delete in Upload history.", "error")
         return redirect_to
 
-    saved, skipped = database.save_shifts(entries, shift_date, MANUAL_SOURCE)
-    msg = f"Saved {saved} shift{'s' if saved != 1 else ''} for {format_dmy(shift_date)}."
-    if skipped:
-        msg += f" ({skipped} duplicate{'s' if skipped != 1 else ''} skipped.)"
+    # Saving makes the day's schedule exactly what's in the form, so it works
+    # the same for a first fill-in and for editing a day saved earlier.
+    added, removed = database.replace_shifts_for_date(shift_date, entries, MANUAL_SOURCE)
+    parts = []
+    if added:
+        parts.append(f"added {added}")
+    if removed:
+        parts.append(f"removed {removed}")
+    msg = (f"Saved {format_dmy(shift_date)}: " + ", ".join(parts) + ".") if parts else "No changes."
     flash(msg, "success")
     return redirect_to
 

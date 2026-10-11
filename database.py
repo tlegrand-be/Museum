@@ -661,6 +661,51 @@ def save_shifts(entries, shift_date, source_image=None):
     return saved, skipped
 
 
+def replace_shifts_for_date(shift_date, entries, source_image):
+    """Make `shift_date`'s schedule exactly `entries` (dicts {name, position}),
+    for editing a day from the Plannings page. A shift that's still wanted is
+    left untouched (keeping whichever upload it came from), shifts no longer
+    in `entries` are deleted, and new ones are added under `source_image`.
+    Returns (added, removed) counts."""
+    import location_rules
+
+    conn = get_db()
+    try:
+        wanted = []
+        for e in entries:
+            name = (e.get("name") or "").strip()
+            position = (e.get("position") or "").strip()
+            if not name or not position:
+                continue
+            worker_id = get_or_create_worker(conn, name)
+            location_id = get_or_create_location(conn, position, location_rules.classify_group(position))
+            if (worker_id, location_id) not in wanted:  # same person twice at one spot is one shift
+                wanted.append((worker_id, location_id))
+
+        existing = conn.execute(
+            "SELECT id, worker_id, location_id FROM shifts WHERE shift_date = ?", (shift_date,),
+        ).fetchall()
+        have = {(r["worker_id"], r["location_id"]) for r in existing}
+
+        removed = 0
+        for r in existing:
+            if (r["worker_id"], r["location_id"]) not in wanted:
+                conn.execute("DELETE FROM shifts WHERE id = ?", (r["id"],))
+                removed += 1
+        added = 0
+        for worker_id, location_id in wanted:
+            if (worker_id, location_id) not in have:
+                conn.execute(
+                    "INSERT INTO shifts (worker_id, location_id, shift_date, source_image) VALUES (?, ?, ?, ?)",
+                    (worker_id, location_id, shift_date, source_image),
+                )
+                added += 1
+        conn.commit()
+        return added, removed
+    finally:
+        conn.close()
+
+
 def overview_stats(exclude_high_security=False):
     """With exclude_high_security, the external colleagues and every shift of
     theirs are left out entirely -- including from the day and per-location

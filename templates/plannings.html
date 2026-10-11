@@ -5,7 +5,8 @@
 <h1 style="margin-bottom: 4px;">Plannings</h1>
 <p style="opacity:0.7; margin-bottom: 24px; font-size: 14px;">
   Click a day with a highlighted square to see who was scheduled and where.{% if is_admin %}
-  Click an empty (white) day to fill in its planning by hand.{% endif %}
+  Click an empty (white) day to fill in its planning by hand, or "Edit this day"
+  on a saved one to change it.{% endif %}
 </p>
 
 <div class="calendar-toolbar">
@@ -49,7 +50,11 @@
 <div id="day-detail">
   {% if selected_day %}
   <div class="section-title">Schedule for {{ selected_day | dmy }}</div>
-  {% if day_entries %}
+  {% if day_entries and not editing %}
+  {% if is_admin %}
+  <a class="btn ghost" style="margin-bottom: 16px;"
+     href="{{ url_for('plannings_page', year=year, month=month, day=selected_day, edit=1) }}#day-detail">Edit this day</a>
+  {% endif %}
   <table>
     <thead>
       <tr>
@@ -71,14 +76,16 @@
       {% endfor %}
     </tbody>
   </table>
-  {% elif is_admin %}
+  {% elif editing %}
   <p style="opacity:0.7; margin-bottom: 16px; font-size: 14px;">
-    Nothing logged for this date yet. Type who worked at each location &mdash;
+    {% if day_entries %}Editing the saved schedule &mdash; change, clear or add names, then save.
+    Clearing a name (or removing its row) takes that colleague off this day.{% else %}Nothing logged for this date yet.{% endif %}
+    Type who worked at each location &mdash;
     matching colleagues appear as you type; &uarr;/&darr; to choose, Enter to pick
     and jump to the next location. Locations left empty are skipped. Remove a
     location with the &times;, or add one (or a second colleague at the same spot) below.
   </p>
-  <form class="upload-form" method="post" action="{{ url_for('add_manual_planning') }}">
+  <form class="upload-form" method="post" action="{{ url_for('add_manual_planning') }}" id="manualForm">
     <input type="hidden" name="shift_date" value="{{ selected_day }}">
     <table class="review-table">
       <thead>
@@ -89,11 +96,12 @@
         </tr>
       </thead>
       <tbody id="manualRows">
-        {% for loc in roster_locations %}
+        {% for loc, name in form_rows %}
         <tr>
           <td><input type="hidden" name="position" value="{{ loc }}">{{ loc }}</td>
           <td class="name-cell">
-            <input type="text" name="name" class="name-input" autocomplete="off" placeholder="nobody">
+            <input type="text" name="name" class="name-input{% if name is high_security %} high-security-name{% endif %}"
+                   autocomplete="off" placeholder="nobody" value="{{ name }}" data-orig="{{ name }}">
           </td>
           <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;" title="Remove this location">&times;</button></td>
         </tr>
@@ -108,7 +116,12 @@
       </datalist>
       <button class="btn ghost" type="button" id="addLocation">+ Add location</button>
     </div>
-    <button class="btn brass" type="submit" style="margin-top: 24px;">Save planning</button>
+    <div style="display:flex; gap:8px; align-items:center; margin-top: 24px;">
+      <button class="btn brass" type="submit">Save planning</button>
+      {% if day_entries %}
+      <a class="btn ghost" href="{{ url_for('plannings_page', year=year, month=month, day=selected_day) }}#day-detail">Cancel</a>
+      {% endif %}
+    </div>
   </form>
 
   <script>
@@ -267,6 +280,28 @@
       if (!li || !activeInput) return;
       e.preventDefault();
       pick(activeInput, li.textContent, true);
+    });
+
+    // When editing a saved day, warn before saving if colleagues who were on
+    // it are about to be taken off (name cleared/changed or row removed).
+    const pairsNow = () => [...rows.querySelectorAll('tr')].map(tr => [
+      tr.querySelector('input[name="position"]').value,
+      fold(tr.querySelector('.name-input').value.trim()),
+    ]);
+    const originals = [...rows.querySelectorAll('.name-input')]
+      .filter(i => i.dataset.orig)
+      .map(i => [i.closest('tr').querySelector('input[name="position"]').value, fold(i.dataset.orig)]);
+    document.getElementById('manualForm').addEventListener('submit', e => {
+      const now = pairsNow().map(p => p.join('|'));
+      const dropped = originals.filter(p => {
+        const i = now.indexOf(p.join('|'));
+        if (i === -1) return true;
+        now.splice(i, 1);
+        return false;
+      }).length;
+      if (dropped && !confirm(`${dropped} colleague${dropped === 1 ? '' : 's'} will be taken off this day. Save anyway?`)) {
+        e.preventDefault();
+      }
     });
 
     document.getElementById('addLocation').addEventListener('click', () => {
