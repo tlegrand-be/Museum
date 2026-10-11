@@ -178,6 +178,15 @@ def high_security_names():
         conn.close()
 
 
+def set_worker_high_security(worker_id, flag):
+    conn = get_db()
+    try:
+        conn.execute("UPDATE workers SET high_security = ? WHERE id = ?", (int(bool(flag)), worker_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def set_high_security(worker_ids):
     """Make exactly `worker_ids` the high-security colleagues; everyone else
     is cleared. Returns (now flagged, now cleared) counts of changed rows."""

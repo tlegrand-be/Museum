@@ -5,11 +5,20 @@
 <a class="back-link" href="{{ url_for('index') }}">&larr; Overview</a>
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 16px;">
   <div>
-    <h1 style="margin-bottom: 4px;">{{ detail.worker.name }}</h1>
-    <p style="opacity:0.7; margin-bottom: 24px;">{{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged</p>
+    <h1 style="margin-bottom: 4px;"{% if detail.worker.high_security %} class="high-security-name"{% endif %}>{{ detail.worker.name }}</h1>
+    <p style="opacity:0.7; margin-bottom: 24px;">
+      {{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged
+      {% if detail.worker.high_security %}&middot; <span class="high-security-name">High security</span>{% endif %}
+    </p>
   </div>
   {% if is_admin %}
-  <div style="display:flex; gap:8px; align-items:center;">
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+    <form method="post" action="{{ url_for('set_worker_high_security', worker_id=detail.worker.id) }}">
+      <input type="hidden" name="high_security" value="{{ 0 if detail.worker.high_security else 1 }}">
+      <button class="btn ghost" type="submit" style="padding:8px 14px; font-size:11px;">
+        {{ 'Remove from high security' if detail.worker.high_security else 'Mark as high security' }}
+      </button>
+    </form>
     <form method="post" action="{{ url_for('rename_worker', worker_id=detail.worker.id) }}" style="display:flex; gap:6px;">
       <input type="text" name="name" value="{{ detail.worker.name }}" required
              style="width:180px; padding:8px 10px; font-size:12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter', sans-serif;">

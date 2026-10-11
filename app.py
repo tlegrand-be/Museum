@@ -505,6 +505,19 @@ def rename_worker(worker_id):
     return redirect(url_for("worker_page", worker_id=result_id))
 
 
+@app.route("/worker/<int:worker_id>/high-security", methods=["POST"])
+@admin_required
+def set_worker_high_security(worker_id):
+    detail = database.worker_detail(worker_id)
+    if not detail:
+        abort(404)
+    flag = request.form.get("high_security") == "1"
+    database.set_worker_high_security(worker_id, flag)
+    name = detail["worker"]["name"]
+    flash(f'{name} {"moved to high security" if flag else "moved back to the main list"}.', "success")
+    return redirect(url_for("worker_page", worker_id=worker_id))
+
+
 @app.route("/worker/<int:worker_id>/delete", methods=["POST"])
 @admin_required
 def delete_worker(worker_id):

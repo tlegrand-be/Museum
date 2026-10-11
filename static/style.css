@@ -322,10 +322,12 @@ select option.high-security-name { color: var(--rust); font-weight: 600; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 24px;
 }
 .colleagues-titlebar h1 { margin-bottom: 0; }
+.colleagues-titlebar .compare-bar-actions { flex-wrap: wrap; }
 
 .compare-bar {
   display: flex;
