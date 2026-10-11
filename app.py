@@ -315,8 +315,6 @@ def uploads_page():
 
     start = (page - 1) * UPLOADS_PER_PAGE
     uploads = all_uploads[start:start + UPLOADS_PER_PAGE]
-    for u in uploads:
-        u["photo_available"] = bool(u.get("source_image")) and (UPLOAD_DIR / u["source_image"]).is_file()
     return render_template(
         "uploads.html", uploads=uploads, page=page, total_pages=total_pages,
         total_uploads=len(all_uploads),
