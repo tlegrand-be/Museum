@@ -540,11 +540,16 @@ def plannings_page():
     worker_counts = database.worker_counts_in_month(year, month)
     day_entries = database.shifts_for_date(selected_day) if selected_day else None
     # A day with nothing logged yet can be filled in by hand (admins only):
-    # pre-fill one row per known location in roster order.
+    # pre-fill one row per regularly-staffed location in roster order. Every
+    # known location (including the occasional ones left out of the defaults)
+    # is still offered under "Location to add".
     manual_locations = list(location_rules.ROSTER_ORDER)
     for loc in database.all_locations():
         if loc["name"] not in manual_locations:
             manual_locations.append(loc["name"])
+    default_locations = [
+        loc for loc in location_rules.ROSTER_ORDER if loc not in MANUAL_ENTRY_OPTIONAL_LOCATIONS
+    ]
 
     prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
     next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
@@ -556,7 +561,7 @@ def plannings_page():
         worker_counts=worker_counts,
         selected_day=selected_day, day_entries=day_entries,
         manual_locations=manual_locations,
-        roster_locations=location_rules.ROSTER_ORDER,
+        roster_locations=default_locations,
         worker_names=database.all_worker_names(),
         today_iso=today.isoformat(),
         prev_year=prev_year, prev_month=prev_month,
@@ -565,6 +570,10 @@ def plannings_page():
 
 
 MANUAL_SOURCE = "manual-entry"
+
+# Only staffed occasionally, so left out of the default rows on a hand-entered
+# planning -- add them with "Location to add" when needed.
+MANUAL_ENTRY_OPTIONAL_LOCATIONS = {"Musicorum", "Wiertz", "Meunier"}
 
 
 @app.route("/plannings/manual", methods=["POST"])
