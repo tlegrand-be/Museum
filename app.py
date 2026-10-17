@@ -683,7 +683,7 @@ MANUAL_SOURCE = "manual-entry"
 
 # Only staffed occasionally, so left out of the default rows on a hand-entered
 # planning -- add them with "Location to add" when needed.
-MANUAL_ENTRY_OPTIONAL_LOCATIONS = {"Musicorum", "Wiertz", "Meunier"}
+MANUAL_ENTRY_OPTIONAL_LOCATIONS = {"Musicorum"}
 
 # Locations that get two default rows, since the roster sheet staffs them
 # with two people.
