@@ -29,10 +29,10 @@
         <td>
           <select name="name">
             {% if e.name not in worker_names %}
-            <option value="{{ e.name }}" selected{% if e.name is high_security %} class="high-security-name"{% endif %}>{{ e.name }} (new)</option>
+            <option value="{{ e.name }}" selected{% if e.name is coordinator %} class="coordinator-name"{% elif e.name is high_security %} class="high-security-name"{% endif %}>{{ e.name }} (new)</option>
             {% endif %}
             {% for n in worker_names %}
-            <option value="{{ n }}" {% if n == e.name %}selected{% endif %}{% if n is high_security %} class="high-security-name"{% endif %}>{{ n }}</option>
+            <option value="{{ n }}" {% if n == e.name %}selected{% endif %}{% if n is coordinator %} class="coordinator-name"{% elif n is high_security %} class="high-security-name"{% endif %}>{{ n }}</option>
             {% endfor %}
           </select>
           {% if e.flagged_skip %}
@@ -66,6 +66,8 @@ const reviewRows = document.getElementById('reviewRows');
 const LOCATIONS = {{ locations | tojson }};
 const WORKER_NAMES = {{ worker_names | tojson }};
 const HIGH_SECURITY = new Set({{ worker_names | select('high_security') | list | tojson }});
+const COORDINATORS = new Set({{ worker_names | select('coordinator') | list | tojson }});
+const nameClass = n => COORDINATORS.has(n) ? 'coordinator-name' : HIGH_SECURITY.has(n) ? 'high-security-name' : '';
 
 function rowTemplate(index) {
   const tr = document.createElement('tr');
@@ -73,7 +75,7 @@ function rowTemplate(index) {
     .concat(LOCATIONS.map(loc => `<option value="${loc}">${loc}</option>`))
     .join('');
   const nameOptions = ['<option value="" selected disabled>-- choose colleague --</option>']
-    .concat(WORKER_NAMES.map(n => `<option value="${n}"${HIGH_SECURITY.has(n) ? ' class="high-security-name"' : ''}>${n}</option>`))
+    .concat(WORKER_NAMES.map(n => `<option value="${n}"${nameClass(n) ? ` class="${nameClass(n)}"` : ''}>${n}</option>`))
     .join('');
   tr.innerHTML = `
     <td><input type="checkbox" name="keep" value="${index}" checked></td>

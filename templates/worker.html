@@ -5,14 +5,21 @@
 <a class="back-link" href="{{ url_for('index') }}">&larr; Overview</a>
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap: 16px;">
   <div>
-    <h1 style="margin-bottom: 4px;"{% if detail.worker.high_security %} class="high-security-name"{% endif %}>{{ detail.worker.name }}</h1>
+    <h1 style="margin-bottom: 4px;"{% if detail.worker.coordinator %} class="coordinator-name"{% elif detail.worker.high_security %} class="high-security-name"{% endif %}>{{ detail.worker.name }}</h1>
     <p style="opacity:0.7; margin-bottom: 24px;">
       {{ detail.total_shifts }} shift{{ 's' if detail.total_shifts != 1 else '' }} logged
+      {% if detail.worker.coordinator %}&middot; <span class="coordinator-name">Coordinator</span>{% endif %}
       {% if detail.worker.high_security %}&middot; <span class="high-security-name">High security</span>{% endif %}
     </p>
   </div>
   {% if is_admin %}
   <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+    <form method="post" action="{{ url_for('set_worker_coordinator', worker_id=detail.worker.id) }}">
+      <input type="hidden" name="coordinator" value="{{ 0 if detail.worker.coordinator else 1 }}">
+      <button class="btn ghost" type="submit" style="padding:8px 14px; font-size:11px;">
+        {{ 'Remove from coordinators' if detail.worker.coordinator else 'Mark as coordinator' }}
+      </button>
+    </form>
     <form method="post" action="{{ url_for('set_worker_high_security', worker_id=detail.worker.id) }}">
       <input type="hidden" name="high_security" value="{{ 0 if detail.worker.high_security else 1 }}">
       <button class="btn ghost" type="submit" style="padding:8px 14px; font-size:11px;">
@@ -41,23 +48,69 @@
     {% else %}
 
     <div class="chart-wrap">
+      <div class="section-title">Time by museum wing</div>
+      <canvas id="byWingChart" height="40"></canvas>
+    </div>
+
+    <div class="chart-wrap">
       <div class="section-title">Time spent by location</div>
       <canvas id="byLocationChart" height="90"></canvas>
     </div>
 
-    <div class="section-title">Shift history</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+      <div class="section-title">Shift history</div>
+      <form method="get" action="{{ url_for('worker_page', worker_id=detail.worker.id) }}">
+        <select name="month" onchange="this.form.submit()"
+                style="padding:6px 10px; font-size:12px; border:1px solid var(--line); border-radius:var(--radius); font-family:'Inter', sans-serif;">
+          <option value="">All months</option>
+          {% for value, label in month_options %}
+          <option value="{{ value }}" {{ 'selected' if value == month }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <noscript><button class="btn ghost" type="submit" style="padding:6px 12px; font-size:11px;">Show</button></noscript>
+      </form>
+    </div>
     <div class="plaque">
       <table>
         <thead><tr><th>Date</th><th>Location</th></tr></thead>
         <tbody>
-          {% for h in detail.history %}
+          {% for h in history %}
           <tr><td class="mono">{{ h.shift_date | dmy }}</td><td>{{ h.location }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
 
+    {% if total_pages > 1 %}
+    <div class="pagination">
+      <a class="calendar-nav-btn {{ 'disabled' if page <= 1 }}"
+         href="{{ url_for('worker_page', worker_id=detail.worker.id, month=month or None, page=page - 1) if page > 1 else '#' }}" title="Previous page">&larr;</a>
+      <span class="pagination-label">Page {{ page }} of {{ total_pages }} &middot; {{ history_total }} shift{{ 's' if history_total != 1 else '' }}</span>
+      <a class="calendar-nav-btn {{ 'disabled' if page >= total_pages }}"
+         href="{{ url_for('worker_page', worker_id=detail.worker.id, month=month or None, page=page + 1) if page < total_pages else '#' }}" title="Next page">&rarr;</a>
+    </div>
+    {% endif %}
+
     <script>
+    const wingColors = {{ group_colors | tojson }};
+    const wingNames = {{ detail.by_group | map(attribute='name') | list | tojson }};
+    new Chart(document.getElementById('byWingChart'), {
+      type: 'bar',
+      data: {
+        labels: wingNames,
+        datasets: [{
+          data: {{ detail.by_group | map(attribute='c') | list | tojson }},
+          backgroundColor: wingNames.map(g => wingColors[g]),
+          borderRadius: 3,
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+
     new Chart(document.getElementById('byLocationChart'), {
       type: 'bar',
       data: {

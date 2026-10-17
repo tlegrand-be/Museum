@@ -81,6 +81,12 @@ def init_db():
         for row in conn.execute("SELECT id, name FROM workers").fetchall():
             if _fold_name(row["name"]) in DEFAULT_HIGH_SECURITY_NAMES:
                 conn.execute("UPDATE workers SET high_security = 1 WHERE id = ?", (row["id"],))
+    # And the coordinator flag, seeded the same way from DEFAULT_COORDINATOR_NAMES.
+    if "coordinator" not in worker_cols:
+        conn.execute("ALTER TABLE workers ADD COLUMN coordinator INTEGER NOT NULL DEFAULT 0")
+        for row in conn.execute("SELECT id, name FROM workers").fetchall():
+            if is_default_coordinator(row["name"]):
+                conn.execute("UPDATE workers SET coordinator = 1 WHERE id = ?", (row["id"],))
     conn.commit()
     conn.close()
     run_location_maintenance()
@@ -168,6 +174,30 @@ def _fold_name(name):
     return "".join(c for c in decomposed if not unicodedata.combining(c)).strip().upper()
 
 
+# Coordinators get their own section on the Colleagues page and are shown in
+# dark yellow wherever names are picked or listed. Like high security, who
+# counts is a flag on workers (workers.coordinator), edited from the
+# Colleagues page; these names only seed it. Matched ignoring case, accents
+# and spaces, so "VAN GENECHTEN" counts as VANGENECHTEN. KANSAL and LEFEVRE
+# cover the spellings the roster OCR has produced.
+DEFAULT_COORDINATOR_NAMES = {"KANCSAL", "KANSAL", "PION", "LEFEBVRE", "LEFEVRE", "VANGENECHTEN"}
+
+
+# Colleagues left out of every chart that compares colleagues (Overview wing
+# chart, Locations "busiest by wing", a location's ranking chart). Their
+# shifts are kept and still show in tables, their own page and exports.
+# Matched against any word of the name, ignoring case and accents.
+HIDDEN_FROM_CHARTS = {"FAJFER"}
+
+
+def is_hidden_from_charts(name):
+    return any(word in HIDDEN_FROM_CHARTS for word in _fold_name(name).split())
+
+
+def is_default_coordinator(name):
+    return _fold_name(name).replace(" ", "") in DEFAULT_COORDINATOR_NAMES
+
+
 def high_security_names():
     """Folded names (see _fold_name) of every colleague flagged high security."""
     conn = get_db()
@@ -204,6 +234,48 @@ def set_high_security(worker_ids):
         else:
             flagged = 0
             cleared = conn.execute("UPDATE workers SET high_security = 0 WHERE high_security = 1").rowcount
+        conn.commit()
+        return flagged, cleared
+    finally:
+        conn.close()
+
+
+def coordinator_names():
+    """Folded names (see _fold_name) of every colleague flagged coordinator."""
+    conn = get_db()
+    try:
+        rows = conn.execute("SELECT name FROM workers WHERE coordinator = 1").fetchall()
+        return {_fold_name(r["name"]) for r in rows}
+    finally:
+        conn.close()
+
+
+def set_worker_coordinator(worker_id, flag):
+    conn = get_db()
+    try:
+        conn.execute("UPDATE workers SET coordinator = ? WHERE id = ?", (int(bool(flag)), worker_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_coordinators(worker_ids):
+    """Make exactly `worker_ids` the coordinators; everyone else
+    is cleared. Returns (now flagged, now cleared) counts of changed rows."""
+    ids = [int(i) for i in worker_ids]
+    placeholders = ",".join("?" * len(ids))
+    conn = get_db()
+    try:
+        if ids:
+            flagged = conn.execute(
+                f"UPDATE workers SET coordinator = 1 WHERE coordinator = 0 AND id IN ({placeholders})", ids,
+            ).rowcount
+            cleared = conn.execute(
+                f"UPDATE workers SET coordinator = 0 WHERE coordinator = 1 AND id NOT IN ({placeholders})", ids,
+            ).rowcount
+        else:
+            flagged = 0
+            cleared = conn.execute("UPDATE workers SET coordinator = 0 WHERE coordinator = 1").rowcount
         conn.commit()
         return flagged, cleared
     finally:
@@ -327,8 +399,8 @@ def get_or_create_worker(conn, name):
         if row:
             return row["id"]
     cur = conn.execute(
-        "INSERT INTO workers (name, high_security) VALUES (?, ?)",
-        (name, int(_fold_name(name) in DEFAULT_HIGH_SECURITY_NAMES)),
+        "INSERT INTO workers (name, high_security, coordinator) VALUES (?, ?, ?)",
+        (name, int(_fold_name(name) in DEFAULT_HIGH_SECURITY_NAMES), int(is_default_coordinator(name))),
     )
     return cur.lastrowid
 
@@ -706,22 +778,24 @@ def replace_shifts_for_date(shift_date, entries, source_image):
         conn.close()
 
 
-def overview_stats(exclude_high_security=False):
+def overview_stats(exclude_high_security=False, exclude_coordinators=False):
     """With exclude_high_security, the external colleagues and every shift of
     theirs are left out entirely -- including from the day and per-location
-    counts -- as if they'd never been logged (used by the Overview page)."""
+    counts -- as if they'd never been logged (used by the Overview page).
+    exclude_coordinators does the same for the coordinators."""
     import location_rules
     conn = get_db()
     workers = [dict(r) for r in conn.execute(
-        """SELECT w.id, w.name, w.high_security, COUNT(s.id) shift_count FROM workers w
+        """SELECT w.id, w.name, w.high_security, w.coordinator, COUNT(s.id) shift_count FROM workers w
            LEFT JOIN shifts s ON s.worker_id = w.id
            GROUP BY w.id ORDER BY w.name COLLATE NOCASE"""
     ).fetchall()]
 
-    excluded_ids = []
-    if exclude_high_security:
-        excluded_ids = [w["id"] for w in workers if w["high_security"]]
-        workers = [w for w in workers if w["id"] not in excluded_ids]
+    excluded_ids = [
+        w["id"] for w in workers
+        if (exclude_high_security and w["high_security"]) or (exclude_coordinators and w["coordinator"])
+    ]
+    workers = [w for w in workers if w["id"] not in excluded_ids]
     placeholders = ",".join("?" * len(excluded_ids))
     not_excluded = f"AND s.worker_id NOT IN ({placeholders})" if excluded_ids else ""
 
@@ -766,6 +840,8 @@ def worker_group_breakdown(exclude_high_security=False):
     for r in rows:
         if exclude_high_security and r["high_security"]:
             continue
+        if is_hidden_from_charts(r["worker"]):
+            continue
         per_worker.setdefault(r["worker"], {g: 0 for g in location_rules.GROUP_ORDER})
         per_worker[r["worker"]][r["grp"]] = r["c"]
 
@@ -796,6 +872,7 @@ def wing_worker_ranking():
             JOIN workers w ON w.id = s.worker_id
             JOIN locations l ON l.id = s.location_id
             WHERE l.group_name IN ({','.join('?' * len(wings))})
+              AND w.high_security = 0 AND w.coordinator = 0
             GROUP BY l.group_name, w.id
             ORDER BY c DESC""",
         wings,
@@ -808,6 +885,8 @@ def wing_worker_ranking():
 
     result = {w: [] for w in wings}
     for r in rows:
+        if is_hidden_from_charts(r["worker"]):
+            continue
         total = totals.get(r["worker_id"], 0)
         percent = round((r["c"] / total) * 100) if total else 0
         result[r["wing"]].append({
@@ -925,6 +1004,12 @@ def worker_detail(worker_id):
            WHERE s.worker_id = ? GROUP BY l.name ORDER BY c DESC""",
         (worker_id,),
     ).fetchall()
+    by_group_rows = conn.execute(
+        """SELECT l.group_name AS grp, COUNT(*) c FROM shifts s
+           JOIN locations l ON l.id = s.location_id
+           WHERE s.worker_id = ? GROUP BY l.group_name""",
+        (worker_id,),
+    ).fetchall()
     history = conn.execute(
         """SELECT s.shift_date, l.name AS location FROM shifts s
            JOIN locations l ON l.id = s.location_id
@@ -933,10 +1018,16 @@ def worker_detail(worker_id):
     ).fetchall()
     total = conn.execute("SELECT COUNT(*) c FROM shifts WHERE worker_id = ?", (worker_id,)).fetchone()["c"]
     conn.close()
+
+    import location_rules
+    group_counts = {r["grp"]: r["c"] for r in by_group_rows}
+    by_group = [{"name": g, "c": group_counts.get(g, 0)} for g in location_rules.GROUP_ORDER]
+
     return {
         "worker": dict(worker),
         "total_shifts": total,
         "by_location": [dict(r) for r in by_location],
+        "by_group": by_group,
         "history": [dict(r) for r in history],
     }
 
@@ -959,8 +1050,8 @@ def create_worker(name):
         if similar:
             return None, similar
         cur = conn.execute(
-            "INSERT INTO workers (name, high_security) VALUES (?, ?)",
-            (name, int(_fold_name(name) in DEFAULT_HIGH_SECURITY_NAMES)),
+            "INSERT INTO workers (name, high_security, coordinator) VALUES (?, ?, ?)",
+            (name, int(_fold_name(name) in DEFAULT_HIGH_SECURITY_NAMES), int(is_default_coordinator(name))),
         )
         conn.commit()
         return cur.lastrowid, None
@@ -1021,19 +1112,28 @@ def location_detail(location_id):
     if not location:
         conn.close()
         return None
+    # High-security colleagues and coordinators are left out of every
+    # location statistic, as if their shifts here had never been logged.
     ranking = conn.execute(
         """SELECT w.id, w.name, COUNT(*) c FROM shifts s
            JOIN workers w ON w.id = s.worker_id
-           WHERE s.location_id = ? GROUP BY w.id ORDER BY c DESC""",
+           WHERE s.location_id = ? AND w.high_security = 0 AND w.coordinator = 0
+           GROUP BY w.id ORDER BY c DESC""",
         (location_id,),
     ).fetchall()
     history = conn.execute(
         """SELECT s.shift_date, w.name AS worker FROM shifts s
            JOIN workers w ON w.id = s.worker_id
-           WHERE s.location_id = ? ORDER BY s.shift_date DESC""",
+           WHERE s.location_id = ? AND w.high_security = 0 AND w.coordinator = 0
+           ORDER BY s.shift_date DESC""",
         (location_id,),
     ).fetchall()
-    total = conn.execute("SELECT COUNT(*) c FROM shifts WHERE location_id = ?", (location_id,)).fetchone()["c"]
+    total = conn.execute(
+        """SELECT COUNT(*) c FROM shifts s
+           JOIN workers w ON w.id = s.worker_id
+           WHERE s.location_id = ? AND w.high_security = 0 AND w.coordinator = 0""",
+        (location_id,),
+    ).fetchone()["c"]
     conn.close()
     return {
         "location": dict(location),

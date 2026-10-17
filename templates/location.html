@@ -46,13 +46,14 @@
   </table>
 </div>
 
+{% set chart_ranking = detail.ranking | rejectattr('name', 'hidden_from_charts') | list %}
 <script>
 new Chart(document.getElementById('rankingChart'), {
   type: 'bar',
   data: {
-    labels: {{ detail.ranking | map(attribute='name') | list | tojson }},
+    labels: {{ chart_ranking | map(attribute='name') | list | tojson }},
     datasets: [{
-      data: {{ detail.ranking | map(attribute='c') | list | tojson }},
+      data: {{ chart_ranking | map(attribute='c') | list | tojson }},
       backgroundColor: themeColor('--brass'),
       borderRadius: 3,
     }]

@@ -9,6 +9,7 @@
   --brass: #B8863B;
   --brass-light: #D4A85C;
   --rust: #A63D2F;
+  --coordinator: #9A7A0A;   /* dark yellow */
   --line: rgba(43, 43, 38, 0.14);
   --radius: 3px;
   --panel-bg: #FFFFFF;
@@ -47,6 +48,7 @@
   --radius: 6px;
   --panel-bg: #131C2B;
   --heading-color: #F1F5F9;
+  --coordinator: #E3B941;
 }
 
 [data-theme="sandy"] {
@@ -123,6 +125,7 @@
   --radius: 6px;
   --panel-bg: #131F19;
   --heading-color: #F1F5F1;
+  --coordinator: #E3B941;
 }
 
 * { box-sizing: border-box; }
@@ -297,6 +300,18 @@ select:has(option.high-security-name:checked) option:not(.high-security-name) {
   font-weight: normal;
 }
 select option.high-security-name { color: var(--rust); font-weight: 600; }
+
+/* Coordinators -- dark yellow, same treatment as high security above. */
+.section-title.coordinator-title { color: var(--coordinator); margin-top: 32px; }
+.entity-card.coordinator { border-left-color: var(--coordinator); }
+.entity-card.coordinator .name,
+.coordinator-name { color: var(--coordinator); font-weight: 600; }
+select:has(option.coordinator-name:checked) { color: var(--coordinator); font-weight: 600; }
+select:has(option.coordinator-name:checked) option:not(.coordinator-name) {
+  color: CanvasText;
+  font-weight: normal;
+}
+select option.coordinator-name { color: var(--coordinator); font-weight: 600; }
 
 .entity-card .name {
   font-family: var(--heading-font);

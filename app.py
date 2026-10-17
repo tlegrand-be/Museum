@@ -91,8 +91,19 @@ def is_high_security(name):
     return database._fold_name(name) in g.high_security_names
 
 
-# `name is high_security` in templates, and `names | select('high_security')`.
+def is_coordinator(name):
+    """Whether `name` belongs to a colleague flagged coordinator (cached per
+    request, like is_high_security)."""
+    if "coordinator_names" not in g:
+        g.coordinator_names = database.coordinator_names()
+    return database._fold_name(name) in g.coordinator_names
+
+
+# `name is high_security` in templates, and `names | select('high_security')`;
+# likewise `is coordinator`.
 app.jinja_env.tests["high_security"] = is_high_security
+app.jinja_env.tests["coordinator"] = is_coordinator
+app.jinja_env.tests["hidden_from_charts"] = database.is_hidden_from_charts
 
 
 @app.before_request
@@ -415,9 +426,13 @@ def upload_image(filename):
 @app.route("/colleagues")
 def colleagues_page():
     stats = database.overview_stats()
-    workers = [w for w in stats["workers"] if not w["high_security"]]
-    high_security = [w for w in stats["workers"] if w["high_security"]]
-    return render_template("colleagues.html", workers=workers, high_security=high_security)
+    # A colleague flagged both ways is listed once, under Coordinators.
+    coordinators = [w for w in stats["workers"] if w["coordinator"]]
+    high_security = [w for w in stats["workers"] if w["high_security"] and not w["coordinator"]]
+    workers = [w for w in stats["workers"] if not w["high_security"] and not w["coordinator"]]
+    return render_template(
+        "colleagues.html", workers=workers, high_security=high_security, coordinators=coordinators,
+    )
 
 
 @app.route("/colleagues/high-security", methods=["POST"])
@@ -428,6 +443,20 @@ def save_high_security():
     parts = []
     if flagged:
         parts.append(f"{flagged} moved to high security.")
+    if cleared:
+        parts.append(f"{cleared} moved back to the main list.")
+    flash(" ".join(parts) if parts else "No changes.", "success")
+    return redirect(url_for("colleagues_page"))
+
+
+@app.route("/colleagues/coordinators", methods=["POST"])
+@admin_required
+def save_coordinators():
+    worker_ids = request.form.getlist("worker_id", type=int)
+    flagged, cleared = database.set_coordinators(worker_ids)
+    parts = []
+    if flagged:
+        parts.append(f"{flagged} moved to coordinators.")
     if cleared:
         parts.append(f"{cleared} moved back to the main list.")
     flash(" ".join(parts) if parts else "No changes.", "success")
@@ -466,11 +495,16 @@ def compare_colleagues():
 
 @app.route("/locations")
 def locations_page():
-    stats = database.overview_stats()
+    # High-security colleagues and coordinators don't count towards any
+    # location statistic.
+    stats = database.overview_stats(exclude_high_security=True, exclude_coordinators=True)
     wing_ranking = database.wing_worker_ranking()
     return render_template(
         "locations.html", locations=stats["locations"], wing_ranking=wing_ranking,
     )
+
+
+HISTORY_PER_PAGE = 20
 
 
 @app.route("/worker/<int:worker_id>")
@@ -479,9 +513,30 @@ def worker_page(worker_id):
     if not detail:
         abort(404)
     locations = database.all_locations()
+
+    # Shift history: optionally narrowed to one month ("YYYY-MM"), then
+    # paged HISTORY_PER_PAGE at a time. The charts above stay all-time.
+    history = detail["history"]
+    months = sorted({h["shift_date"][:7] for h in history}, reverse=True)
+    month_options = [
+        (m, f"{calendar.month_name[int(m[5:7])]} {m[:4]}") for m in months
+    ]
+    month = request.args.get("month", "")
+    if month not in months:
+        month = ""
+    if month:
+        history = [h for h in history if h["shift_date"].startswith(month)]
+
+    total_pages = max(1, -(-len(history) // HISTORY_PER_PAGE))
+    page = request.args.get("page", 1, type=int) or 1
+    page = min(max(page, 1), total_pages)
+    start = (page - 1) * HISTORY_PER_PAGE
+
     return render_template(
         "worker.html", detail=detail, locations=locations,
         worker_id_for_sidebar=worker_id, active_location_id=None,
+        history=history[start:start + HISTORY_PER_PAGE], history_total=len(history),
+        month=month, month_options=month_options, page=page, total_pages=total_pages,
     )
 
 
@@ -515,6 +570,19 @@ def set_worker_high_security(worker_id):
     database.set_worker_high_security(worker_id, flag)
     name = detail["worker"]["name"]
     flash(f'{name} {"moved to high security" if flag else "moved back to the main list"}.', "success")
+    return redirect(url_for("worker_page", worker_id=worker_id))
+
+
+@app.route("/worker/<int:worker_id>/coordinator", methods=["POST"])
+@admin_required
+def set_worker_coordinator(worker_id):
+    detail = database.worker_detail(worker_id)
+    if not detail:
+        abort(404)
+    flag = request.form.get("coordinator") == "1"
+    database.set_worker_coordinator(worker_id, flag)
+    name = detail["worker"]["name"]
+    flash(f'{name} {"moved to coordinators" if flag else "moved back to the main list"}.', "success")
     return redirect(url_for("worker_page", worker_id=worker_id))
 
 

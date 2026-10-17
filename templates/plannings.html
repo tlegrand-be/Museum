@@ -66,7 +66,7 @@
     <tbody>
       {% for e in day_entries %}
       <tr>
-        <td{% if e.worker is high_security %} class="high-security-name" title="High security"{% endif %}>{{ e.worker }}</td>
+        <td{% if e.worker is coordinator %} class="coordinator-name" title="Coordinator"{% elif e.worker is high_security %} class="high-security-name" title="High security"{% endif %}>{{ e.worker }}</td>
         <td>{{ e.location }}</td>
         <td>
           <span class="dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:{{ group_colors.get(e.area, '#8A8A78') }}; margin-right:6px;"></span>
@@ -100,7 +100,7 @@
         <tr>
           <td><input type="hidden" name="position" value="{{ loc }}">{{ loc }}</td>
           <td class="name-cell">
-            <input type="text" name="name" class="name-input{% if name is high_security %} high-security-name{% endif %}"
+            <input type="text" name="name" class="name-input{% if name is coordinator %} coordinator-name{% elif name is high_security %} high-security-name{% endif %}"
                    autocomplete="off" placeholder="nobody" value="{{ name }}" data-orig="{{ name }}">
           </td>
           <td><button type="button" class="btn ghost remove-row" style="padding: 6px 10px;" title="Remove this location">&times;</button></td>
@@ -130,6 +130,8 @@
     const input = document.getElementById('newLocation');
     const WORKER_NAMES = {{ worker_names | tojson }};
     const HIGH_SECURITY = new Set({{ worker_names | select('high_security') | list | tojson }});
+    const COORDINATORS = new Set({{ worker_names | select('coordinator') | list | tojson }});
+    const nameClass = n => COORDINATORS.has(n) ? 'coordinator-name' : HIGH_SECURITY.has(n) ? 'high-security-name' : '';
     const ORDER = {{ manual_locations | tojson }};
 
     function el(tag, props = {}, children = []) {
@@ -208,7 +210,7 @@
       const matches = suggestionsFor(input.value);
       if (!matches.length) { closeList(); return; }
       list.replaceChildren(...matches.map(n => el('li', {
-        textContent: n, role: 'option', className: HIGH_SECURITY.has(n) ? 'high-security-name' : '',
+        textContent: n, role: 'option', className: nameClass(n),
       })));
       activeInput = input;
       input.parentElement.append(list);
@@ -217,13 +219,16 @@
 
     // Flag a typed name that isn't a known colleague -- it'd be saved as a
     // brand-new colleague, which is usually a typo rather than intended --
-    // and show a picked external (high-security) colleague in red.
+    // and show a picked external (high-security) colleague in red, a
+    // coordinator in yellow.
     function markUnknown(input) {
       const v = fold(input.value.trim());
       const match = KNOWN.find(w => w.key === v);
       const unknown = Boolean(v) && !match;
       input.classList.toggle('is-unknown', unknown);
-      input.classList.toggle('high-security-name', Boolean(match) && HIGH_SECURITY.has(match.name));
+      const cls = match ? nameClass(match.name) : '';
+      input.classList.toggle('high-security-name', cls === 'high-security-name');
+      input.classList.toggle('coordinator-name', cls === 'coordinator-name');
       input.title = unknown ? 'Not a known colleague -- will be added as a new one' : '';
     }
 
@@ -245,7 +250,7 @@
 
     rows.addEventListener('input', e => {
       if (!e.target.classList.contains('name-input')) return;
-      e.target.classList.remove('is-unknown', 'high-security-name');
+      e.target.classList.remove('is-unknown', 'high-security-name', 'coordinator-name');
       openList(e.target);
     });
     rows.addEventListener('focusin', e => {

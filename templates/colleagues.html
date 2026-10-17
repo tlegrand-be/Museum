@@ -7,6 +7,7 @@
   <span class="compare-bar-actions">
     {% if is_admin %}
     <button type="button" class="btn ghost" id="hsToggle">Edit high security</button>
+    <button type="button" class="btn ghost" id="coordToggle">Edit coordinators</button>
     {% endif %}
     <button type="button" class="btn ghost" id="compareToggle">Compare colleagues</button>
   </span>
@@ -18,6 +19,13 @@
   <span class="compare-bar-actions">
     <button class="btn brass" type="submit">Save</button>
     <button class="btn ghost" type="button" id="hsCancel">Cancel</button>
+  </span>
+</form>
+<form class="compare-bar" id="coordBar" style="display:none;" method="post" action="{{ url_for('save_coordinators') }}">
+  <span id="coordHint">Click colleagues to mark them as coordinators (yellow) or move them back, then save.</span>
+  <span class="compare-bar-actions">
+    <button class="btn brass" type="submit">Save</button>
+    <button class="btn ghost" type="button" id="coordCancel">Cancel</button>
   </span>
 </form>
 {% endif %}
@@ -40,12 +48,12 @@
 </div>
 {% endif %}
 
-{% if workers | length == 0 and high_security | length == 0 %}
+{% if workers | length == 0 and high_security | length == 0 and coordinators | length == 0 %}
 <div class="plaque empty-state"><p>No colleagues logged yet. Upload a roster to get started.</p></div>
 {% else %}
 <div class="card-grid">
   {% for w in workers %}
-  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="0">
+  <a class="entity-card" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="0" data-coord="0">
     <div class="name">{{ w.name }}</div>
     <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
   </a>
@@ -56,7 +64,19 @@
 <div class="section-title high-security-title">High security</div>
 <div class="card-grid">
   {% for w in high_security %}
-  <a class="entity-card high-security" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="1">
+  <a class="entity-card high-security" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="1" data-coord="0">
+    <div class="name">{{ w.name }}</div>
+    <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if coordinators %}
+<div class="section-title coordinator-title">Coordinators</div>
+<div class="card-grid">
+  {% for w in coordinators %}
+  <a class="entity-card coordinator{{ ' high-security' if w.high_security }}" href="{{ url_for('worker_page', worker_id=w.id) }}" data-worker-id="{{ w.id }}" data-hs="{{ w.high_security }}" data-coord="1">
     <div class="name">{{ w.name }}</div>
     <div class="count">{{ w.shift_count }} shift{{ 's' if w.shift_count != 1 else '' }}</div>
   </a>
@@ -94,38 +114,37 @@
     cards.forEach(c => c.classList.remove('selected'));
   }
 
-  // ---- Edit high security (admins only) ----
-  // Clicking a card toggles it red in place; Save posts every card that's
-  // red at that moment, so the server ends up with exactly that set.
-  const hsToggle = document.getElementById('hsToggle');
-  const hsBar = document.getElementById('hsBar');
-  const hsHint = document.getElementById('hsHint');
-  let hsMode = false;
+  // ---- Edit high security / coordinators (admins only) ----
+  // Clicking a card toggles its colour in place; Save posts every card that
+  // has the flag at that moment, so the server ends up with exactly that set.
+  function flagEditor(prefix, cls, dataKey, hintText) {
+    const toggle = document.getElementById(prefix + 'Toggle');
+    const bar = document.getElementById(prefix + 'Bar');
+    const hint = document.getElementById(prefix + 'Hint');
+    const editor = { active: false, exit() {} };
+    if (!toggle) return editor;
 
-  function hsChanges() {
-    return [...cards].filter(c => c.classList.contains('high-security') !== (c.dataset.hs === '1')).length;
-  }
+    const changes = () =>
+      [...cards].filter(c => c.classList.contains(cls) !== (c.dataset[dataKey] === '1')).length;
 
-  function exitHsMode() {
-    hsMode = false;
-    if (!hsBar) return;
-    hsBar.style.display = 'none';
-    cards.forEach(c => c.classList.toggle('high-security', c.dataset.hs === '1'));  // undo unsaved clicks
-  }
-
-  if (hsToggle) {
-    hsToggle.addEventListener('click', () => {
-      if (hsMode) { exitHsMode(); return; }
+    editor.exit = () => {
+      editor.active = false;
+      bar.style.display = 'none';
+      cards.forEach(c => c.classList.toggle(cls, c.dataset[dataKey] === '1'));  // undo unsaved clicks
+    };
+    toggle.addEventListener('click', () => {
+      if (editor.active) { editor.exit(); return; }
       exitCompareMode();
-      hsMode = true;
-      hsBar.style.display = 'flex';
-      hsHint.textContent = 'Click colleagues to mark them as high security (red) or move them back, then save.';
+      editors.forEach(ed => ed !== editor && ed.exit());
+      editor.active = true;
+      bar.style.display = 'flex';
+      hint.textContent = hintText;
     });
-    document.getElementById('hsCancel').addEventListener('click', exitHsMode);
-    hsBar.addEventListener('submit', () => {
+    document.getElementById(prefix + 'Cancel').addEventListener('click', editor.exit);
+    bar.addEventListener('submit', () => {
       cards.forEach(c => {
-        if (c.classList.contains('high-security')) {
-          hsBar.append(Object.assign(document.createElement('input'), {
+        if (c.classList.contains(cls)) {
+          bar.append(Object.assign(document.createElement('input'), {
             type: 'hidden', name: 'worker_id', value: c.dataset.workerId,
           }));
         }
@@ -133,20 +152,26 @@
     });
     cards.forEach(card => {
       card.addEventListener('click', e => {
-        if (!hsMode) return;
+        if (!editor.active) return;
         e.preventDefault();
-        card.classList.toggle('high-security');
-        const n = hsChanges();
-        hsHint.textContent = n ? `${n} change${n === 1 ? '' : 's'} — save to apply.`
-                               : 'Click colleagues to mark them as high security (red) or move them back, then save.';
+        card.classList.toggle(cls);
+        const n = changes();
+        hint.textContent = n ? `${n} change${n === 1 ? '' : 's'} — save to apply.` : hintText;
       });
     });
+    return editor;
   }
+
+  const editors = [];
+  editors.push(flagEditor('hs', 'high-security', 'hs',
+    'Click colleagues to mark them as high security (red) or move them back, then save.'));
+  editors.push(flagEditor('coord', 'coordinator', 'coord',
+    'Click colleagues to mark them as coordinators (yellow) or move them back, then save.'));
 
   compareToggle.addEventListener('click', () => {
     compareMode = !compareMode;
     if (compareMode) {
-      exitHsMode();
+      editors.forEach(ed => ed.exit());
       compareBar.style.display = 'flex';
       refresh();
     } else {
