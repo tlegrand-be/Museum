@@ -190,6 +190,16 @@ DEFAULT_COORDINATOR_NAMES = {"KANCSAL", "KANSAL", "PION", "LEFEBVRE", "LEFEVRE",
 HIDDEN_FROM_CHARTS = {"FAJFER"}
 
 
+# Locations whose shifts are kept but left out of every chart and of the
+# wing statistics -- the Magritte Mobile post roams, so it would skew Magritte.
+# Their shifts still show in shift histories, on the location's own page and
+# in exports. NOT_COUNTED_SQL is a WHERE condition on the `locations l` alias.
+NOT_COUNTED_LOCATIONS = ("Magritte Mobile",)
+NOT_COUNTED_SQL = "l.name NOT IN ({})".format(
+    ",".join("'" + n.replace("'", "''") + "'" for n in NOT_COUNTED_LOCATIONS)
+)
+
+
 def is_hidden_from_charts(name):
     return any(word in HIDDEN_FROM_CHARTS for word in _fold_name(name).split())
 
@@ -589,7 +599,7 @@ def shared_wing_shifts(worker_ids):
             FROM shifts s
             JOIN locations l ON l.id = s.location_id
             JOIN workers w ON w.id = s.worker_id
-            WHERE s.worker_id IN ({placeholders})""",
+            WHERE s.worker_id IN ({placeholders}) AND {NOT_COUNTED_SQL}""",
         worker_ids,
     ).fetchall()
     conn.close()
@@ -832,6 +842,7 @@ def worker_group_breakdown(exclude_high_security=False):
            FROM shifts s
            JOIN workers w ON w.id = s.worker_id
            JOIN locations l ON l.id = s.location_id
+           WHERE """ + NOT_COUNTED_SQL + """
            GROUP BY w.id, l.group_name"""
     ).fetchall()
     conn.close()
@@ -873,13 +884,18 @@ def wing_worker_ranking():
             JOIN locations l ON l.id = s.location_id
             WHERE l.group_name IN ({','.join('?' * len(wings))})
               AND w.high_security = 0 AND w.coordinator = 0
+              AND {NOT_COUNTED_SQL}
             GROUP BY l.group_name, w.id
             ORDER BY c DESC""",
         wings,
     ).fetchall()
     totals = {
         r["worker_id"]: r["c"]
-        for r in conn.execute("SELECT worker_id, COUNT(*) c FROM shifts GROUP BY worker_id").fetchall()
+        for r in conn.execute(
+            f"""SELECT s.worker_id, COUNT(*) c FROM shifts s
+                JOIN locations l ON l.id = s.location_id
+                WHERE {NOT_COUNTED_SQL} GROUP BY s.worker_id"""
+        ).fetchall()
     }
     conn.close()
 
@@ -999,15 +1015,15 @@ def worker_detail(worker_id):
         conn.close()
         return None
     by_location = conn.execute(
-        """SELECT l.name, COUNT(*) c FROM shifts s
+        f"""SELECT l.name, COUNT(*) c FROM shifts s
            JOIN locations l ON l.id = s.location_id
-           WHERE s.worker_id = ? GROUP BY l.name ORDER BY c DESC""",
+           WHERE s.worker_id = ? AND {NOT_COUNTED_SQL} GROUP BY l.name ORDER BY c DESC""",
         (worker_id,),
     ).fetchall()
     by_group_rows = conn.execute(
-        """SELECT l.group_name AS grp, COUNT(*) c FROM shifts s
+        f"""SELECT l.group_name AS grp, COUNT(*) c FROM shifts s
            JOIN locations l ON l.id = s.location_id
-           WHERE s.worker_id = ? GROUP BY l.group_name""",
+           WHERE s.worker_id = ? AND {NOT_COUNTED_SQL} GROUP BY l.group_name""",
         (worker_id,),
     ).fetchall()
     history = conn.execute(
