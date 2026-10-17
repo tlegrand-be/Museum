@@ -512,7 +512,7 @@ def worker_page(worker_id):
     detail = database.worker_detail(worker_id)
     if not detail:
         abort(404)
-    locations = database.all_locations()
+    locations = database.all_locations(by_wing=True)
 
     # Shift history: optionally narrowed to one month ("YYYY-MM"), then
     # paged HISTORY_PER_PAGE at a time. The charts above stay all-time.
@@ -602,7 +602,7 @@ def worker_location_page(worker_id, location_id):
     detail = database.worker_location_history(worker_id, location_id)
     if not detail:
         abort(404)
-    locations = database.all_locations()
+    locations = database.all_locations(by_wing=True)
     return render_template(
         "worker_location.html", detail=detail, locations=locations,
         worker_id=worker_id, worker_id_for_sidebar=worker_id,

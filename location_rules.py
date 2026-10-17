@@ -197,11 +197,16 @@ def classify_group(location_name):
         return "Other"
     n = location_name.lower()
 
+    # The roaming Mobile post is its own category rather than part of
+    # Magritte, so it doesn't skew the Magritte figures.
+    if "mobile" in n or "mobiel" in n:
+        return "Mobile"
+
     magritte_names = {
-        "magritte coordinateur", "magritte mobile", "magritte sas", "magritte ct",
+        "magritte coordinateur", "magritte sas", "magritte ct",
         "magritte lift", "magritte +1", "magritte +2", "magritte +3",
     }
-    if n in magritte_names or "magritte" in n or "coordinateur" in n or "mobile" in n:
+    if n in magritte_names or "magritte" in n or "coordinateur" in n:
         return "MAGRITTE"
 
     balat_names = {
@@ -228,8 +233,9 @@ GROUP_COLORS = {
     "FORUM": "#2E8B57",
     "BALAT": "#D93B2C",
     "MAGRITTE": "#5BC8E8",
+    "Mobile": "#B8930B",
     "ME/WI": "#8E5B9E",
     "Other": "#8A8A78",
 }
 
-GROUP_ORDER = ["FORUM", "BALAT", "MAGRITTE", "ME/WI", "Other"]
+GROUP_ORDER = ["FORUM", "BALAT", "MAGRITTE", "Mobile", "ME/WI", "Other"]
