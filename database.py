@@ -908,16 +908,25 @@ def dates_with_shifts_in_month(year, month):
     return {r["shift_date"] for r in rows}
 
 
+# Locations whose colleagues aren't counted in the Plannings calendar's
+# per-day colleague count (their shifts are still logged and shown).
+NOT_IN_DAY_COUNT_LOCATIONS = ("Wiertz", "Meunier")
+
+
 def worker_counts_in_month(year, month):
     """Map of ISO date string -> number of distinct workers scheduled that
-    day, within (year, month), for the Plannings calendar squares."""
+    day, within (year, month), for the Plannings calendar squares. Shifts at
+    NOT_IN_DAY_COUNT_LOCATIONS don't count (a day with only those shows 0)."""
     conn = get_db()
     prefix = f"{year:04d}-{month:02d}-"
+    excluded = ",".join("?" * len(NOT_IN_DAY_COUNT_LOCATIONS))
     rows = conn.execute(
-        """SELECT shift_date, COUNT(DISTINCT worker_id) AS worker_count
-           FROM shifts WHERE shift_date LIKE ?
-           GROUP BY shift_date""",
-        (prefix + "%",),
+        f"""SELECT s.shift_date,
+                  COUNT(DISTINCT CASE WHEN l.name NOT IN ({excluded}) THEN s.worker_id END) AS worker_count
+           FROM shifts s JOIN locations l ON l.id = s.location_id
+           WHERE s.shift_date LIKE ?
+           GROUP BY s.shift_date""",
+        (*NOT_IN_DAY_COUNT_LOCATIONS, prefix + "%"),
     ).fetchall()
     conn.close()
     return {r["shift_date"]: r["worker_count"] for r in rows}
